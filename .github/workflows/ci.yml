@@ -1,0 +1,39 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Install Rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable -c rustfmt,clippy
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Install system packages
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libmpv2 ffmpeg xvfb
+
+      - name: Fetch libmpv headers
+        run: |
+          ./scripts/fetch-mpv-deps.sh
+          dir="$GITHUB_WORKSPACE/.deps/mpv/usr/lib/x86_64-linux-gnu"
+          {
+            echo "MPV_LIBRARY_DIR=$dir"
+            echo "LIBRARY_PATH=$dir"
+            echo "LD_LIBRARY_PATH=$dir"
+            echo "PKG_CONFIG_PATH=$dir/pkgconfig"
+          } >> "$GITHUB_ENV"
+
+      - run: cargo fmt --check
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo test --workspace --locked
+      - run: xvfb-run -a cargo test -p skjalf --test mpv_integration --locked -- --ignored --test-threads=1
