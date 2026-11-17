@@ -74,7 +74,7 @@ Skjalf TV is installed.
 Next steps:
   1. Start Steam, or return to Game Mode.
   2. Open the Library and find Skjalf TV under Non-Steam.
-  3. On a TV, set Game resolution to Native in the Steam Deck display settings.
+  3. On a TV, open the Skjalf TV properties in Steam and set Game resolution to Native.
 MSG
 }
 
