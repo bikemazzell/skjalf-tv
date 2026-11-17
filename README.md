@@ -164,10 +164,6 @@ Tests never start the real Steam client. To check this, put a fake `steam` scrip
 
 The icon shows a TV whose antenna is the rune Algiz (ᛉ), with Odin's all-seeing eye on the screen. The SVG sources are in `packaging/icons`. To render the PNG files again, run `packaging/icons/render.sh`. It needs `rsvg-convert` and the Ubuntu font.
 
-## How this project was made
-
-Skjalf TV was written with substantial help from AI coding assistants, under human direction. A person set the goals, made the design decisions, and tested every feature on a Steam Deck with a real provider. Automated tests and code reviews checked each change.
-
 ## License
 
 MIT. See [LICENSE](LICENSE).
