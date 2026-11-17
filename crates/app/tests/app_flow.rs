@@ -3681,6 +3681,7 @@ fn select_while_buffering_starts_playback_instead_of_pausing() {
     );
     assert!(!a.media.buffering());
 
+    engine.buffer.lock().unwrap().as_mut().unwrap().waiting = false;
     a.activate_bar_control(skjalf::app::BarControl::PlayPause, 2_200);
     assert!(a.paused, "once playing, Play/Pause pauses again");
 }

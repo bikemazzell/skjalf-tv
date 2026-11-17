@@ -178,6 +178,29 @@ fn start_now_ends_the_start_wait_at_once() {
 
 #[test]
 #[ignore]
+fn a_failed_load_ends_the_start_wait() {
+    let mut engine = MpvEngine::headless().expect("libmpv init");
+    let missing = std::env::temp_dir().join(format!("skjalf-missing-wait-{}", std::process::id()));
+    engine.load(missing.to_str().unwrap()).unwrap();
+    engine.pause(false).unwrap();
+    engine
+        .set_buffering(BufferPlan {
+            start_secs: 600.0,
+            stall_secs: 1.0,
+        })
+        .unwrap();
+    assert!(engine.buffer_status().expect("buffer status").waiting);
+    assert!(
+        poll_until(&mut engine, |engine| !engine
+            .buffer_status()
+            .expect("buffer status")
+            .waiting),
+        "the error ends the wait, so no buffering screen covers it"
+    );
+}
+
+#[test]
+#[ignore]
 fn start_now_during_a_stall_restores_the_stall_wait_afterward() {
     let mut engine = buffered_load(0.0, 9.0);
     assert!(!engine.is_paused());

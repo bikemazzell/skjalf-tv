@@ -131,7 +131,7 @@ impl App {
     fn video_action(&mut self, action: Action, now_ms: u64) {
         let on_demand = self.is_on_demand();
         match action {
-            Action::Select if self.media.buffering() => self.start_now(now_ms),
+            Action::Select if self.buffer_waiting() => self.start_now(now_ms),
             Action::Down => self.player_focus = PlayerFocus::Controls(DEFAULT_CONTROL),
             Action::Up if on_demand => self.player.show_osd(OsdKind::Info, now_ms),
             Action::Back => self.leave_player(now_ms),
@@ -245,8 +245,16 @@ impl App {
         self.show_status("Starting playback".into(), now_ms);
     }
 
+    /// True while playback waits for the buffer, read from the engine now.
+    pub fn buffer_waiting(&self) -> bool {
+        self.engine
+            .as_ref()
+            .and_then(|engine| engine.buffer_status())
+            .is_some_and(|buffer| buffer.waiting)
+    }
+
     pub fn toggle_pause(&mut self, now_ms: u64) {
-        if self.media.buffering() {
+        if self.buffer_waiting() {
             return self.start_now(now_ms);
         }
         let paused = !self.paused;

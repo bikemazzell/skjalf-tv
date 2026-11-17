@@ -152,6 +152,8 @@ struct Observed {
     /// With `keep-open` mpv pauses at the end instead of ending the file.
     eof: bool,
     ended_reported: bool,
+    /// A seek is in flight; `eof` may still describe the old position.
+    seeking: bool,
     events: Vec<PlayerEvent>,
 }
 
@@ -167,6 +169,7 @@ impl Default for Observed {
             core_idle: true,
             eof: false,
             ended_reported: false,
+            seeking: false,
             events: Vec::new(),
         }
     }
@@ -185,6 +188,7 @@ impl Observed {
     fn apply(&mut self, event: rsmpv::Event) {
         match event {
             rsmpv::Event::StartFile { .. } => self.started = true,
+            rsmpv::Event::PlaybackRestart => self.seeking = false,
             rsmpv::Event::FileLoaded => self.events.push(PlayerEvent::Loaded),
             rsmpv::Event::EndFile {
                 reason: rsmpv::EndFileReason::Eof,
@@ -205,7 +209,7 @@ impl Observed {
             }
             _ => {}
         }
-        if self.eof && !self.ended_reported {
+        if self.eof && !self.ended_reported && !self.seeking {
             self.ended_reported = true;
             self.events.push(PlayerEvent::Ended);
         }
@@ -227,7 +231,10 @@ impl Observed {
             "demuxer-cache-idle" => self.cache_idle = flag.unwrap_or(false),
             "paused-for-cache" => self.paused_for_cache = flag.unwrap_or(false),
             "core-idle" => self.core_idle = flag.unwrap_or(true),
-            "eof-reached" => self.eof = flag.unwrap_or(false),
+            "eof-reached" => {
+                self.eof = flag.unwrap_or(false);
+                self.seeking = false;
+            }
             _ => {}
         }
     }
@@ -351,9 +358,7 @@ impl MpvEngine {
         };
         let full = {
             let state = self.pump();
-            state
-                .ahead
-                .is_some_and(|ahead| ahead >= target || state.cache_idle)
+            state.cache_idle || state.ahead.is_some_and(|ahead| ahead >= target)
         };
         if full {
             self.start_target = None;
@@ -390,7 +395,7 @@ impl PlayerEngine for MpvEngine {
     fn seek_relative(&mut self, secs: f64) -> Result<(), PlayerError> {
         {
             let mut state = self.pump();
-            state.eof = false;
+            state.seeking = true;
             state.ended_reported = false;
         }
         self.mpv
@@ -453,6 +458,13 @@ impl PlayerEngine for MpvEngine {
             events.push(PlayerEvent::Failed(error.0));
         }
         events.append(&mut self.pump().events);
+        if events
+            .iter()
+            .any(|event| matches!(event, PlayerEvent::Failed(_)))
+        {
+            self.start_target = None;
+            self.pending_stall_wait = None;
+        }
         events
     }
 
