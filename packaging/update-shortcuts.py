@@ -89,7 +89,6 @@ def atomic_write(path, data):
 ARTWORK_DIR = Path(__file__).resolve().parent / "icons"
 GRID_FILES = {"capsule.png": "{}p.png", "header.png": "{}.png", "hero.png": "{}_hero.png", "logo.png": "{}_logo.png"}
 APP_NAME = "Skjalf TV"
-LEGACY_APP_NAME = "SteamTV"
 
 
 def install_grid_artwork(grid, appid, artwork):
@@ -117,10 +116,8 @@ def update(vdf, executable, install_dir, artwork=ARTWORK_DIR):
         "StartDir": f'"{install_dir}"', "icon": str(Path(install_dir) / "skjalf.png"),
     }
     previous = next((item for item in existing if item.get("AppName") == APP_NAME), None)
-    if previous is None:
-        previous = next((item for item in existing if item.get("AppName") == LEGACY_APP_NAME), None)
     entry = {**(previous if previous is not None else entry), **owned}
-    updated = [item for item in existing if item.get("AppName") not in (APP_NAME, LEGACY_APP_NAME)] + [entry]
+    updated = [item for item in existing if item.get("AppName") != APP_NAME] + [entry]
     data = write_vdf(updated)
     if old:
         backup = vdf.with_name(vdf.name + ".bak")

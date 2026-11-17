@@ -6771,7 +6771,10 @@ fn window_title_and_main_header_read_skjalf_tv() {
 
 #[test]
 fn an_app_without_a_store_reports_storage_unavailable_on_save() {
-    let mut a = App::without_store();
+    let blocker = std::env::temp_dir().join(format!("skjalf-no-store-{}", std::process::id()));
+    std::fs::write(&blocker, "").unwrap();
+    let mut a = App::with_store(&blocker.join("skjalf"));
+    std::fs::remove_file(&blocker).ok();
     assert!(a.store.is_none());
     a.toggle_sort(BrowserId::Live);
     assert!(a

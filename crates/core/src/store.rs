@@ -181,53 +181,6 @@ fn cache_name(source_id: &str) -> String {
 }
 
 /// `<file>.<ext>` → `<file>.<ext>.tmp` in the same directory (rename target).
-/// Copy the data directory of the pre-rename app to `new`. Does nothing when
-/// `new` exists or `old` does not. The copy goes through a sibling temporary
-/// directory renamed into place, so a failure never leaves a partial `new`.
-/// Returns whether a copy happened.
-pub fn migrate_data_dir(old: &Path, new: &Path) -> Result<bool, StoreError> {
-    if new.symlink_metadata().is_ok() || !old.is_dir() {
-        return Ok(false);
-    }
-    let staging = sibling_temp(new);
-    let copied = std::fs::remove_dir_all(&staging)
-        .or_else(|error| match error.kind() {
-            std::io::ErrorKind::NotFound => Ok(()),
-            _ => Err(error),
-        })
-        .and_then(|()| copy_tree(old, &staging, 0, false))
-        .and_then(|()| std::fs::rename(&staging, new));
-    if let Err(error) = copied {
-        let _ = std::fs::remove_dir_all(&staging);
-        return Err(error.into());
-    }
-    Ok(true)
-}
-
-/// Copy a tree. Failures under the top-level `cache` directory are skipped
-/// because the next refresh refetches them; any other failure aborts.
-fn copy_tree(from: &Path, to: &Path, depth: usize, lenient: bool) -> std::io::Result<()> {
-    std::fs::create_dir(to)?;
-    restrict(to, true);
-    for entry in std::fs::read_dir(from)? {
-        let entry = entry?;
-        let target = to.join(entry.file_name());
-        let kind = entry.file_type()?;
-        let child_lenient = lenient || (depth == 0 && entry.file_name() == "cache");
-        let copied = if kind.is_dir() {
-            copy_tree(&entry.path(), &target, depth + 1, child_lenient)
-        } else if kind.is_file() {
-            std::fs::copy(entry.path(), &target).map(|_| restrict(&target, false))
-        } else {
-            Ok(())
-        };
-        if !lenient && !child_lenient {
-            copied?;
-        }
-    }
-    Ok(())
-}
-
 fn sibling_temp(path: &Path) -> PathBuf {
     let mut os = path.as_os_str().to_os_string();
     os.push(".tmp");

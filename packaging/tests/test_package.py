@@ -46,23 +46,23 @@ class ShortcutsTests(unittest.TestCase):
             self.assertEqual(reinstalled[1]['tags'], {'0': 'user tag'})
             self.assertNotEqual(reinstalled[1]['appid'], 0)
 
-    def test_update_replaces_the_old_steamtv_entry_and_keeps_similar_names(self):
+    def test_update_replaces_its_own_entry_and_keeps_similar_names(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'shortcuts.vdf'
             path.write_bytes(shortcuts.write_vdf([
-                {'AppName': 'SteamTV', 'Exe': 'old'},
-                {'AppName': 'SteamTV Test', 'Exe': 'private'},
+                {'AppName': 'Skjalf TV', 'Exe': 'old'},
+                {'AppName': 'Skjalf TV Test', 'Exe': 'private'},
                 {'AppName': 'Other Game', 'Exe': 'other'},
             ]))
             shortcuts.update(path, Path(directory) / 'skjalf.sh', Path(directory))
             names = [item['AppName'] for item in shortcuts.read_vdf(path.read_bytes())]
-            self.assertEqual(names, ['SteamTV Test', 'Other Game', 'Skjalf TV'])
+            self.assertEqual(names, ['Skjalf TV Test', 'Other Game', 'Skjalf TV'])
 
-    def test_update_carries_user_settings_over_from_the_old_steamtv_entry(self):
+    def test_update_carries_user_settings_over_from_a_moved_install(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'shortcuts.vdf'
             path.write_bytes(shortcuts.write_vdf([{
-                'appid': 1, 'AppName': 'SteamTV', 'Exe': 'old', 'StartDir': 'old', 'icon': 'old.png',
+                'appid': 1, 'AppName': 'Skjalf TV', 'Exe': 'old', 'StartDir': 'old', 'icon': 'old.png',
                 'LaunchOptions': '--fast', 'AllowOverlay': 0, 'openvr': 1, 'LastPlayTime': 77,
                 'tags': {'0': 'TV'},
             }]))
@@ -103,7 +103,7 @@ class ShortcutsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
             path = base / 'shortcuts.vdf'
-            path.write_bytes(shortcuts.write_vdf([{'appid': -5, 'AppName': 'SteamTV', 'Exe': 'old'}]))
+            path.write_bytes(shortcuts.write_vdf([{'appid': -5, 'AppName': 'Skjalf TV', 'Exe': 'old'}]))
             old_art = base / 'grid'
             old_art.mkdir()
             (old_art / f'{-5 & 0xFFFFFFFF}p.png').write_bytes(b'old')

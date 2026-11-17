@@ -9,7 +9,7 @@ use skjalf_core::model::{
     Favorites, Playlist, RefreshInterval, RefreshTimes, Settings, SortModes, Source, SourceKind,
     StreamFormat,
 };
-use skjalf_core::store::{migrate_data_dir, Store};
+use skjalf_core::store::Store;
 
 static SEQ: AtomicU32 = AtomicU32::new(0);
 
@@ -351,96 +351,4 @@ fn series_catalog_roundtrips_without_source_identity() {
     assert!(name.to_str().unwrap().ends_with("-series.json"));
     assert!(!std::fs::read_to_string(name).unwrap().contains("http"));
     std::fs::remove_dir_all(dir).ok();
-}
-
-fn legacy_tree(root: &Path) -> PathBuf {
-    let old = root.join("steamtv");
-    std::fs::create_dir_all(old.join("cache")).unwrap();
-    std::fs::write(old.join("settings.toml"), "volume = 40\n").unwrap();
-    std::fs::write(old.join("cache").join("a.json"), "{}").unwrap();
-    old
-}
-
-fn mode(path: &Path) -> u32 {
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::metadata(path).unwrap().permissions().mode() & 0o777
-}
-
-#[test]
-fn migration_copies_the_tree_with_private_modes_and_keeps_the_old_one() {
-    let root = tempdir();
-    let old = legacy_tree(&root);
-    let new = root.join("skjalf");
-    assert!(migrate_data_dir(&old, &new).unwrap());
-    assert_eq!(
-        std::fs::read_to_string(new.join("settings.toml")).unwrap(),
-        "volume = 40\n"
-    );
-    assert!(new.join("cache/a.json").is_file());
-    assert_eq!(mode(&new), 0o700);
-    assert_eq!(mode(&new.join("cache")), 0o700);
-    assert_eq!(mode(&new.join("settings.toml")), 0o600);
-    assert_eq!(mode(&new.join("cache/a.json")), 0o600);
-    assert!(old.join("settings.toml").is_file());
-    assert!(!root.join("skjalf.tmp").exists());
-    std::fs::remove_dir_all(root).ok();
-}
-
-#[test]
-fn migration_never_overwrites_an_existing_directory_or_runs_without_a_source() {
-    let root = tempdir();
-    let old = legacy_tree(&root);
-    let new = root.join("skjalf");
-    std::fs::create_dir_all(&new).unwrap();
-    std::fs::write(new.join("settings.toml"), "volume = 90\n").unwrap();
-    assert!(!migrate_data_dir(&old, &new).unwrap());
-    assert_eq!(
-        std::fs::read_to_string(new.join("settings.toml")).unwrap(),
-        "volume = 90\n"
-    );
-    let fresh = root.join("fresh");
-    assert!(!migrate_data_dir(&root.join("missing"), &fresh).unwrap());
-    assert!(!fresh.exists());
-    std::fs::remove_dir_all(root).ok();
-}
-
-fn lock(path: &Path) -> bool {
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o000)).unwrap();
-    std::fs::File::open(path).is_err()
-}
-
-#[test]
-fn failed_migration_of_an_essential_file_leaves_no_partial_directory() {
-    let root = tempdir();
-    let old = legacy_tree(&root);
-    let new = root.join("skjalf");
-    if !lock(&old.join("settings.toml")) {
-        std::fs::remove_dir_all(root).ok();
-        return;
-    }
-    assert!(migrate_data_dir(&old, &new).is_err());
-    assert!(!new.exists());
-    assert!(!root.join("skjalf.tmp").exists());
-    assert!(old.join("cache/a.json").is_file());
-    std::fs::remove_dir_all(root).ok();
-}
-
-#[test]
-fn unreadable_cache_files_are_skipped_and_the_rest_is_copied() {
-    let root = tempdir();
-    let old = legacy_tree(&root);
-    let locked = old.join("cache").join("locked.json");
-    std::fs::write(&locked, "{}").unwrap();
-    if !lock(&locked) {
-        std::fs::remove_dir_all(root).ok();
-        return;
-    }
-    let new = root.join("skjalf");
-    assert!(migrate_data_dir(&old, &new).unwrap());
-    assert!(new.join("settings.toml").is_file());
-    assert!(new.join("cache/a.json").is_file());
-    assert!(!new.join("cache/locked.json").exists());
-    assert!(!root.join("skjalf.tmp").exists());
-    std::fs::remove_dir_all(root).ok();
 }

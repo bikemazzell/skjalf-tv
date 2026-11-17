@@ -37,29 +37,6 @@ pub fn config_dir() -> PathBuf {
     config_base().join("skjalf")
 }
 
-/// Config directory of the app's earlier name, copied once on first start.
-fn legacy_config_dir() -> PathBuf {
-    config_base().join("steamtv")
-}
-
-/// The app over the config directory, first copying settings from the
-/// earlier directory when this one is new. When that copy fails the app starts
-/// without a store, so the next start retries the copy.
-pub fn open_app() -> App {
-    match skjalf_core::store::migrate_data_dir(&legacy_config_dir(), &config_dir()) {
-        Ok(_) => App::with_store(&config_dir()),
-        Err(_) => {
-            eprintln!("Could not copy settings from the earlier SteamTV directory.");
-            let mut app = App::without_store();
-            app.notice = Some(
-                "Storage is unavailable. Earlier settings were not copied; restart to retry."
-                    .into(),
-            );
-            app
-        }
-    }
-}
-
 /// Launch the app window (dark theme, fullscreen in Game Mode).
 pub fn run() -> eframe::Result {
     let game_mode = detect::from_env();
@@ -82,7 +59,7 @@ pub fn run() -> eframe::Result {
         Box::new(|cc| {
             theme::apply(&cc.egui_ctx);
             fonts::install(&cc.egui_ctx);
-            let mut app = open_app();
+            let mut app = App::with_store(&config_dir());
             app.game_mode = game_mode;
             app.auto_refresh = true;
             app.gamepad = gamepad::GamepadThread::spawn();

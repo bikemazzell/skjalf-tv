@@ -193,17 +193,10 @@ pub struct App {
 }
 
 impl App {
-    /// Headless constructor for tests: no engine, explicit store dir.
+    /// The app over a store directory, without a player engine. A directory
+    /// that cannot be opened leaves the app without storage for the session.
     pub fn with_store(dir: &std::path::Path) -> Self {
-        Self::from_store(Store::open(dir).ok())
-    }
-
-    /// Start with no store: nothing is read or saved this session.
-    pub fn without_store() -> Self {
-        Self::from_store(None)
-    }
-
-    fn from_store(store: Option<Store>) -> Self {
+        let store = Store::open(dir).ok();
         let settings = store
             .as_ref()
             .and_then(|s| s.load_settings().ok())
