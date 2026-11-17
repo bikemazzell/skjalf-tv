@@ -1,0 +1,136 @@
+<p align="center"><img src="packaging/icons/skjalf-256.png" width="128" alt="Skjalf TV icon"></p>
+
+# Skjalf TV
+
+Skjalf TV is an IPTV player for the Steam Deck and Linux desktops. It plays live TV, movies, and series from an Xtream Codes provider or an M3U playlist. You control it with the Deck's buttons, a touch screen, or a keyboard. The app is written in Rust with egui and libmpv.
+
+The name comes from Hliðskjálf, the high seat from which Odin watches all nine worlds.
+
+Skjalf TV contains no channels or content. You need your own IPTV subscription or playlist.
+
+## Features
+
+- Live TV with channel groups, search, name sort, favorites, channel numbers, and channel zapping.
+- A movie and series library that stays fast with catalogs of more than 180,000 titles.
+- Details screens with ratings, genres, plot, seasons, and episodes.
+- Resume where you stopped. Main shows a Continue Watching row and the latest movies and series.
+- Watched and in-progress markers in every list.
+- Favorite channels, movies, series, and whole groups. Favorite groups appear at the top of the group list.
+- A group filter. For example, type "SI|" to show only the Slovenian groups.
+- A standard transport bar: play, pause, seek, previous and next channel, volume, and favorite.
+- In Game Mode, the Steam on-screen keyboard opens automatically for text fields.
+- Correct right-to-left text for Arabic and Persian titles.
+- Automatic refresh of the provider data. The default interval is 24 hours.
+- Scaling for the Deck screen (1280x800) and for a TV at 1920x1080.
+
+## Controls
+
+| Steam Deck | Keyboard | Action |
+|---|---|---|
+| D-pad or left stick | Arrow keys | Move the focus |
+| A | Enter | Open or select |
+| B | Esc or Backspace | Go back |
+| X | E | Search in a list. Show program information in the live player. |
+| Y | F | Add or remove a favorite |
+| L1 and R1 | Page Up and Page Down | Move one page in a list. Change the channel in the live player. |
+| Number keys | Digits | Go to a channel number in Live TV |
+
+A hint line at the bottom of every list shows the buttons for the focused control.
+
+In the live player, Up and Down change the channel and Left and Right change the volume. Press Down to move the focus into the transport bar.
+
+In the movie and episode player, A pauses and resumes playback. Left and Right seek 10 seconds, and L1 and R1 seek 60 seconds.
+
+To type a search, press X. Type with the Steam keyboard, then press Enter or B to finish.
+
+## Install on a Steam Deck
+
+The installer adds Skjalf TV to Steam as a non-Steam game, with an icon and library artwork. It needs network access to download the pinned SteamOS playback libraries.
+
+1. Switch the Deck to Desktop Mode.
+2. Copy this source tree and a release build of `skjalf` to the Deck. See "Build" below.
+3. Exit Steam. The installer edits Steam's shortcut list, and Steam overwrites changes that it does not expect.
+4. Run the installer with the absolute path of the binary:
+
+   ```sh
+   packaging/install-steamos.sh /absolute/path/to/skjalf
+   ```
+
+5. Start Steam and return to Game Mode. Skjalf TV appears in the library under Non-Steam.
+
+The installer puts the app in `~/.local/share/skjalf` and adds a desktop menu entry. It backs up `shortcuts.vdf` before it changes it, and it never changes other shortcuts.
+
+To reuse downloaded packages, set `SKJALF_PACKAGE_CACHE` to the directory that holds them. To use your own libmpv build, set `SKJALF_MPV_LIB_DIR` to a directory that contains `libmpv.so.2`. The installer then skips the download.
+
+### Play on a TV
+
+When the Deck is docked to a TV, open the Skjalf TV properties in Steam and set "Game resolution" to Native. Start the app after you connect the TV. If you do not, the app renders at 1280x800 and Steam enlarges the picture.
+
+## First start
+
+1. Choose Xtream Codes or M3U.
+2. Enter the server, user name, and password, or the playlist URL.
+3. Select Connect.
+
+To change the source later, open Settings and select Edit Source. Settings also has Refresh Content and the refresh interval: Off, 6 hours, 12 hours, 24 hours, 48 hours, or 7 days.
+
+## Privacy
+
+Skjalf TV keeps your settings, favorites, watch progress, and cached catalogs in `~/.config/skjalf` (or `$XDG_CONFIG_HOME/skjalf`). These files contain your provider address and credentials. The app creates them readable only by your user. Treat the whole directory as private.
+
+The app sends no data anywhere except to your provider. It does not write your credentials to logs or error messages.
+
+If you used the app under its earlier name, SteamTV, the first start copies your data from `~/.config/steamtv`. The old directory stays where it is.
+
+## Build
+
+You need Rust 1.90 or later. A development script downloads libmpv packages into `.deps/mpv`. These libraries are for builds and tests on the workstation only, not for SteamOS.
+
+```sh
+./scripts/fetch-mpv-deps.sh
+export MPV_LIBRARY_DIR="$PWD/.deps/mpv/usr/lib/x86_64-linux-gnu"
+export LIBRARY_PATH="$MPV_LIBRARY_DIR"
+export LD_LIBRARY_PATH="$MPV_LIBRARY_DIR"
+export PKG_CONFIG_PATH="$MPV_LIBRARY_DIR/pkgconfig"
+cargo build --release -p skjalf
+```
+
+The binary is `target/release/skjalf`.
+
+## Tests
+
+```sh
+cargo test --workspace --locked
+cargo test -p skjalf --test mpv_integration --locked -- --ignored --test-threads=1
+cargo fmt --check
+cargo clippy --workspace --all-targets --locked -- -D warnings
+```
+
+The `mpv_integration` tests play generated clips through the real libmpv. The packaging tests need a release binary and the libmpv directory:
+
+```sh
+SKJALF_TEST_BINARY="$PWD/target/release/skjalf" \
+SKJALF_TEST_MPV_LIB_DIR="$MPV_LIBRARY_DIR" \
+SKJALF_TEST_NETWORK=1 \
+python3 -m unittest discover -s packaging/tests -v
+```
+
+Without `SKJALF_TEST_NETWORK=1`, the test that downloads the SteamOS runtime is skipped. The packaging tests write only to temporary directories.
+
+Tests never start the real Steam client. To check this, put a fake `steam` script that logs its arguments first on `PATH`. Then run the tests and make sure that the log is empty.
+
+## Project layout
+
+| Path | Contents |
+|---|---|
+| `crates/core` | Logic without a display: provider parsing, catalogs, search, favorites, progress, and storage |
+| `crates/app` | The egui app: views, input, the libmpv player, and the Steam keyboard |
+| `packaging` | The SteamOS installer, runtime lock file, Steam shortcut writer, icons, and their tests |
+
+## Icons and artwork
+
+The icon shows a TV whose antenna is the rune Algiz (ᛉ), with Odin's all-seeing eye on the screen. The SVG sources are in `packaging/icons`. To render the PNG files again, run `packaging/icons/render.sh`. It needs `rsvg-convert` and the Ubuntu font.
+
+## License
+
+MIT. See [LICENSE](LICENSE).

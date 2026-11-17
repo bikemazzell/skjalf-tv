@@ -1,0 +1,24 @@
+[package]
+name = "skjalf"
+description = "Skjalf TV, a fullscreen IPTV player for the Steam Deck and Linux"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "skjalf"
+path = "src/main.rs"
+
+[dependencies]
+eframe = "0.33"
+egui = "0.33"
+egui_glow = "0.33.3"
+evdev = "0.13"
+libloading = "0.8.9"
+rsmpv = { version = "0.2.1", features = ["render"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+skjalf-core = { path = "../core" }
+thiserror.workspace = true
+ureq = "2"
+x11rb = "0.13"

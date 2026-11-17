@@ -1,0 +1,11 @@
+# <sha256> <url> <role>
+# Role "runtime": its usr/lib shared objects are bundled into the app.
+# Role "tool": runs at fetch time only and is never bundled.
+fcd4177323a823db5f8039978974c8fbe7118fb65cd70bf0792eebd609ee1527 https://steamdeck-packages.steamos.cloud/archlinux-mirror/extra-3.9/os/x86_64/mpv-1:0.41.0-3-x86_64.pkg.tar.zst runtime
+d6b7bea39dd1e7ade948c1239c894ddb8abddc76f9491cd24bea11620b2dbd67 https://steamdeck-packages.steamos.cloud/archlinux-mirror/extra-3.9/os/x86_64/libcdio-2.3.0-1-x86_64.pkg.tar.zst runtime
+181587f28fca9d16e3106f1fb5791222be0be202a5cc3603009ebb9d04041f6c https://steamdeck-packages.steamos.cloud/archlinux-mirror/extra-3.9/os/x86_64/libcdio-paranoia-10.2+2.0.2-2-x86_64.pkg.tar.zst runtime
+c9569636dd03f2833720f8cb3b565c0944117fb10dc06a54d7c442a50a27072f https://steamdeck-packages.steamos.cloud/archlinux-mirror/extra-3.9/os/x86_64/libsixel-1.10.5-1-x86_64.pkg.tar.zst runtime
+78552cf8ae3218508dfd32317dd0d9bb99376266a372738bb4eaed4d745c41bc https://steamdeck-packages.steamos.cloud/archlinux-mirror/extra-3.9/os/x86_64/libxpresent-1.0.2-1-x86_64.pkg.tar.zst runtime
+ad67313c9bcef49e1d397490daac3813394d690b15c85fbcf1d696f920dda58b https://steamdeck-packages.steamos.cloud/archlinux-mirror/extra-3.9/os/x86_64/mujs-1.3.9-1-x86_64.pkg.tar.zst runtime
+afe60fcdc490303349b23d0aaf3fa19205fb4a029ba1382dd8bd2a18d5db292c https://steamdeck-packages.steamos.cloud/archlinux-mirror/extra-3.9/os/x86_64/uchardet-0.0.8-4-x86_64.pkg.tar.zst runtime
+5efa147d88f6d8fc40cd190e367ac5ff3898e77736cbf68d8779872e4589c6a8 https://steamdeck-packages.steamos.cloud/archlinux-mirror/extra-3.9/os/x86_64/patchelf-0.19.1-1-x86_64.pkg.tar.zst tool

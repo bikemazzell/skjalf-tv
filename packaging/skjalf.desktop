@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Skjalf TV
+Comment=Fullscreen IPTV player for Steam Deck Game Mode
+Exec="@INSTALL_DIR@/skjalf.sh"
+Icon=skjalf
+Terminal=false
+Categories=AudioVideo;Video;TV;
+X-PrefersNonDefaultGPU=true

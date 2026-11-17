@@ -1,0 +1,9 @@
+#EXTM3U
+#EXTINF:-1 tvg-id="cnn.us" tvg-chno="1" tvg-logo="http://l/cnn.png" group-title="News",CNN International
+http://srv.example/live/{user}/{pass}/1.ts
+#EXTINF:-1 tvg-chno="2" group-title="News",BBC News
+http://srv.example/live/{user}/{pass}/2.ts
+#EXTINF:-1 group-title="Sports",Sky Sports
+http://srv.example/live/sky.m3u8
+#EXTINF:-1,Bare Channel
+http://srv.example/live/bare.ts
