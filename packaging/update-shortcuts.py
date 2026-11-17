@@ -129,12 +129,36 @@ def update(vdf, executable, install_dir, artwork=ARTWORK_DIR):
     install_grid_artwork(vdf.parent / "grid", appid, artwork)
 
 
+def remove(vdf):
+    if not vdf.exists():
+        return
+    old = vdf.read_bytes()
+    existing = read_vdf(old)
+    ours = [item for item in existing if item.get("AppName") == APP_NAME]
+    if not ours:
+        return
+    atomic_write(vdf.with_name(vdf.name + ".bak"), old)
+    atomic_write(vdf, write_vdf([item for item in existing if item.get("AppName") != APP_NAME]))
+    grid = vdf.parent / "grid"
+    for item in ours:
+        appid = item.get("appid")
+        if isinstance(appid, int):
+            for pattern in GRID_FILES.values():
+                (grid / pattern.format(appid & 0xFFFFFFFF)).unlink(missing_ok=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--remove", action="store_true", help="remove the Skjalf TV entry and its artwork")
     parser.add_argument("vdf", type=Path)
-    parser.add_argument("install_dir", type=Path)
+    parser.add_argument("install_dir", type=Path, nargs="?")
     args = parser.parse_args()
-    update(args.vdf, args.install_dir / "skjalf.sh", args.install_dir)
+    if args.remove:
+        remove(args.vdf)
+    elif args.install_dir is None:
+        parser.error("install_dir is required")
+    else:
+        update(args.vdf, args.install_dir / "skjalf.sh", args.install_dir)
 
 
 if __name__ == "__main__":
