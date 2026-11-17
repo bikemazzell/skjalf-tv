@@ -45,20 +45,45 @@ To type a search, press X. Type with the Steam keyboard, then press Enter or B t
 
 ## Install on a Steam Deck
 
-The installer adds Skjalf TV to Steam as a non-Steam game, with an icon and library artwork. It needs network access to download the pinned SteamOS playback libraries.
-
-1. Switch the Deck to Desktop Mode.
-2. Copy this source tree and a release build of `skjalf` to the Deck. See "Build" below.
-3. Exit Steam. The installer edits Steam's shortcut list, and Steam overwrites changes that it does not expect.
-4. Run the installer with the absolute path of the binary:
+1. Hold the power button and select Switch to Desktop.
+2. Open Konsole from the application menu.
+3. Run this command:
 
    ```sh
-   packaging/install-steamos.sh /absolute/path/to/skjalf
+   curl -fsSL https://github.com/bikemazzell/skjalf-tv/releases/latest/download/install.sh | sh
    ```
 
-5. Start Steam and return to Game Mode. Skjalf TV appears in the library under Non-Steam.
+4. Select Return to Gaming Mode on the desktop. Skjalf TV is in the library under Non-Steam.
 
-The installer puts the app in `~/.local/share/skjalf` and adds a desktop menu entry. It backs up `shortcuts.vdf` before it changes it, and it never changes other shortcuts.
+The installer downloads the latest release and checks its SHA-256 checksum. If Steam is open, the installer closes it first, because Steam overwrites shortcut changes that it does not expect. The installer then downloads the pinned SteamOS playback libraries from Valve's package server and checks each hash. It puts the app in `~/.local/share/skjalf`, adds a menu entry, and adds a Steam shortcut with an icon and library artwork. It backs up `shortcuts.vdf` before it changes it, and it never changes other shortcuts.
+
+To update Skjalf TV, run the same command again. Your settings, favorites, and watch progress stay.
+
+To read the script before you run it, download it first:
+
+```sh
+curl -fsSLO https://github.com/bikemazzell/skjalf-tv/releases/latest/download/install.sh
+less install.sh
+sh install.sh
+```
+
+### Uninstall
+
+In Desktop Mode, run:
+
+```sh
+curl -fsSL https://github.com/bikemazzell/skjalf-tv/releases/latest/download/uninstall.sh | sh
+```
+
+The uninstaller removes the app, its menu entry, and its Steam shortcut and artwork. It keeps your settings in `~/.config/skjalf`. To remove those too, including your saved provider credentials, add `-s -- --purge` after `sh`.
+
+### Install from source
+
+Build `skjalf` as described in "Build", copy the source tree and the binary to the Deck, close Steam, and run:
+
+```sh
+packaging/install-steamos.sh /absolute/path/to/skjalf
+```
 
 To reuse downloaded packages, set `SKJALF_PACKAGE_CACHE` to the directory that holds them. To use your own libmpv build, set `SKJALF_MPV_LIB_DIR` to a directory that contains `libmpv.so.2`. The installer then skips the download.
 
@@ -126,10 +151,15 @@ Tests never start the real Steam client. To check this, put a fake `steam` scrip
 | `crates/core` | Logic without a display: provider parsing, catalogs, search, favorites, progress, and storage |
 | `crates/app` | The egui app: views, input, the libmpv player, and the Steam keyboard |
 | `packaging` | The SteamOS installer, runtime lock file, Steam shortcut writer, icons, and their tests |
+| `.github/workflows` | Continuous integration and the release build |
 
 ## Icons and artwork
 
 The icon shows a TV whose antenna is the rune Algiz (ᛉ), with Odin's all-seeing eye on the screen. The SVG sources are in `packaging/icons`. To render the PNG files again, run `packaging/icons/render.sh`. It needs `rsvg-convert` and the Ubuntu font.
+
+## How this project was made
+
+Skjalf TV was written with substantial help from AI coding assistants, under human direction. A person set the goals, made the design decisions, and tested every feature on a Steam Deck with a real provider. Automated tests and code reviews checked each change.
 
 ## License
 
