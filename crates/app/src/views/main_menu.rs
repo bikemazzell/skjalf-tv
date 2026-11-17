@@ -53,7 +53,7 @@ pub fn show(ctx: &egui::Context, app: &mut App) {
                                 Button::new(text).selected(selected),
                             );
                             if selected && focus_moved {
-                                response.scroll_to_me(Some(egui::Align::Center));
+                                super::center_now(&response);
                             }
                             if response.clicked() {
                                 activated = Some(*button);
@@ -85,7 +85,7 @@ pub fn show(ctx: &egui::Context, app: &mut App) {
                                         1,
                                     );
                                     if is_selected && moved {
-                                        response.scroll_to_me(Some(egui::Align::Center));
+                                        super::center_now(&response);
                                     }
                                     if response.clicked() {
                                         opened_tile = Some((row, position));
@@ -96,7 +96,11 @@ pub fn show(ctx: &egui::Context, app: &mut App) {
                     // A nested scroll area swallows the vertical target, so scroll the
                     // row itself into view from the outer area.
                     if moved {
-                        ui.scroll_to_rect(area.inner_rect, Some(egui::Align::Center));
+                        ui.scroll_to_rect_animation(
+                            area.inner_rect,
+                            Some(egui::Align::Center),
+                            egui::style::ScrollAnimation::none(),
+                        );
                     }
                 }
             });

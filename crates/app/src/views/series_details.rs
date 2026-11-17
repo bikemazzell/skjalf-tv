@@ -1,6 +1,6 @@
 //! Series details: header, season list, and episode list.
 
-use egui::{Align, Button, RichText};
+use egui::{Button, RichText};
 use skjalf_core::catalog::{format_duration, format_rating};
 
 use crate::app::{App, DetailInfo, SeriesFocus};
@@ -123,7 +123,7 @@ pub fn show(ctx: &egui::Context, app: &mut App, now_ms: u64) {
                                     Button::new(text).selected(selected),
                                 );
                                 if selected && jump {
-                                    response.scroll_to_me(Some(Align::Center));
+                                    super::center_now(&response);
                                 }
                                 if response.clicked() {
                                     chosen_season = Some(position);
@@ -167,10 +167,7 @@ pub fn show(ctx: &egui::Context, app: &mut App, now_ms: u64) {
                 }
                 let mut scroll = egui::ScrollArea::vertical().id_salt(("episodes", details.season));
                 if jump {
-                    let stride = crate::theme::MIN_HIT + ui.spacing().item_spacing.y;
-                    let top = details.episode as f32 * stride;
-                    let offset =
-                        (top - (ui.available_height() - crate::theme::MIN_HIT) / 2.0).max(0.0);
+                    let offset = super::centered_row_offset(ui, details.episode, episodes.len());
                     scroll = scroll.vertical_scroll_offset(offset);
                 }
                 scroll.show_rows(ui, crate::theme::MIN_HIT, episodes.len(), |ui, range| {

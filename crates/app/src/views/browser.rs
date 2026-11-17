@@ -6,7 +6,7 @@
 //! selection scrolls into view whenever it changes (controller navigation),
 //! not on every frame.
 
-use egui::{Align, Button, RichText, TextEdit};
+use egui::{Button, RichText, TextEdit};
 use skjalf_core::browse::{BrowserFocus, CategorySel};
 
 use crate::app::{App, BrowserId, TextTarget};
@@ -61,11 +61,13 @@ pub fn show(ctx: &egui::Context, app: &mut App, id: BrowserId) {
             let stride = crate::theme::MIN_HIT + ui.spacing().item_spacing.y;
             app.page_rows[id as usize][0] =
                 (ui.available_height() / stride).floor().max(1.0) as usize;
-            egui::ScrollArea::vertical()
-                .id_salt(("categories", id))
-                .show(ui, |ui| {
-                    categories(ui, app, id, jump);
-                });
+            let mut scroll = egui::ScrollArea::vertical().id_salt(("categories", id));
+            if jump {
+                let offset =
+                    super::centered_row_offset(ui, app.category_row(id), app.categories_len(id));
+                scroll = scroll.vertical_scroll_offset(offset);
+            }
+            scroll.show(ui, |ui| categories(ui, app, id));
         });
 
     egui::CentralPanel::default().show(ctx, |ui| {
@@ -118,7 +120,7 @@ fn group_filter(ui: &mut egui::Ui, app: &mut App, id: BrowserId) {
     });
 }
 
-fn categories(ui: &mut egui::Ui, app: &mut App, id: BrowserId, jump: bool) {
+fn categories(ui: &mut egui::Ui, app: &mut App, id: BrowserId) {
     let current_row = app.category_row(id);
     for row in 0..app.categories_len(id) {
         let mut label = app.category_label(id, row).unwrap_or_default();
@@ -141,9 +143,6 @@ fn categories(ui: &mut egui::Ui, app: &mut App, id: BrowserId, jump: bool) {
             [ui.available_width(), crate::theme::MIN_HIT],
             Button::new(text).selected(focused),
         );
-        if selected && jump {
-            resp.scroll_to_me(Some(Align::Center));
-        }
         if resp.clicked() {
             app.end_text_edit();
             if let Some(category) = app.category_at(id, row) {
@@ -182,9 +181,7 @@ fn items(ui: &mut egui::Ui, app: &mut App, id: BrowserId, jump: bool) {
     app.page_rows[id as usize][1] = (ui.available_height() / stride).floor().max(1.0) as usize;
     let mut scroll = egui::ScrollArea::vertical().id_salt(("items", id));
     if jump && row_count > 0 {
-        let row_stride = crate::theme::MIN_HIT + ui.spacing().item_spacing.y;
-        let row_top = app.state(id).selected.min(row_count - 1) as f32 * row_stride;
-        let offset = (row_top - (ui.available_height() - crate::theme::MIN_HIT) / 2.0).max(0.0);
+        let offset = super::centered_row_offset(ui, app.state(id).selected, row_count);
         scroll = scroll.vertical_scroll_offset(offset);
     }
     let mut clicked = None;
