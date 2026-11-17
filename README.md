@@ -113,8 +113,6 @@ Skjalf TV keeps your settings, favorites, watch progress, and cached catalogs in
 
 The app sends no data anywhere except to your provider. It does not write your credentials to logs or error messages.
 
-If you used the app under its earlier name, SteamTV, the first start copies your data from `~/.config/steamtv`. The old directory stays where it is.
-
 ## Build
 
 You need Rust 1.90 or later. A development script downloads libmpv packages into `.deps/mpv`. These libraries are for builds and tests on the workstation only, not for SteamOS.
