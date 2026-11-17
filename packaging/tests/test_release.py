@@ -1,6 +1,7 @@
 import hashlib
 import importlib.util
 import os
+import re
 from pathlib import Path
 import subprocess
 import tarfile
@@ -52,6 +53,8 @@ def fake_environment(base):
     return fake, env
 
 
+WORKSPACE_VERSION = re.search(r'^version = "([^"]+)"', (ROOT / 'Cargo.toml').read_text(), re.M).group(1)
+
 class MakeReleaseTests(unittest.TestCase):
     def test_assets_layout_and_checksums(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -74,7 +77,7 @@ class MakeReleaseTests(unittest.TestCase):
                 ):
                     self.assertIn(required, names)
                 self.assertFalse([n for n in names if '/tests' in n or '__pycache__' in n])
-                self.assertEqual(tar.extractfile('skjalf-tv/VERSION').read().decode().strip(), '0.1.0')
+                self.assertEqual(tar.extractfile('skjalf-tv/VERSION').read().decode().strip(), WORKSPACE_VERSION)
                 self.assertTrue(tar.getmember('skjalf-tv/skjalf').mode & 0o111)
             self.assertEqual((out / 'install.sh').read_bytes(), (ROOT / 'packaging/bootstrap-install.sh').read_bytes())
             checked = subprocess.run(['sha256sum', '-c', 'SHA256SUMS'], cwd=out, capture_output=True, text=True)

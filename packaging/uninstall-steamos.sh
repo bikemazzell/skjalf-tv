@@ -55,8 +55,13 @@ close_steam() {
     done
 }
 
+# The shell reads this whole function before main runs, so a truncated download cannot run partially.
+main() {
 DEST="$INSTALL_HOME/.local/share/skjalf"
-HERE=$(CDPATH= cd -- "$(dirname -- "$0")" 2>/dev/null && pwd) || HERE=
+HERE=
+if [ -f "$0" ]; then
+    HERE=$(CDPATH= cd -- "$(dirname -- "$0")" 2>/dev/null && pwd) || HERE=
+fi
 SHORTCUTS=
 for candidate in "$HERE/update-shortcuts.py" "$DEST/update-shortcuts.py"; do
     if [ -f "$candidate" ]; then
@@ -97,3 +102,6 @@ elif [ -d "$CONFIG" ]; then
     echo "Kept $CONFIG. It holds your source credentials; run with --purge to remove it."
 fi
 echo "Skjalf TV is removed."
+}
+
+main "$@"
