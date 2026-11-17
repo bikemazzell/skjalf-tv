@@ -109,7 +109,7 @@ fn a_cache_directory_moves_the_buffer_to_disk_with_a_larger_limit() {
     let on_disk = MpvEngine::new(80, false, Some(&dir)).expect("libmpv init");
     assert!(property::<bool>(&on_disk, "cache-on-disk"));
     assert_eq!(
-        property::<String>(&on_disk, "cache-dir"),
+        property::<String>(&on_disk, "demuxer-cache-dir"),
         dir.to_str().unwrap()
     );
     assert_eq!(property::<i64>(&on_disk, "demuxer-max-bytes"), 4 << 30);

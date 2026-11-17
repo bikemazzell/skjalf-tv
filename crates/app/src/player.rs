@@ -257,7 +257,7 @@ impl MpvEngine {
         if let Some(dir) = disk_cache.and_then(Path::to_str) {
             builder = builder
                 .set_property("cache-on-disk", true)?
-                .set_property("cache-dir", dir)?
+                .set_property("demuxer-cache-dir", dir)?
                 .set_property("demuxer-max-bytes", DISK_CACHE_LIMIT)?;
         }
         Self::from_mpv(builder.build()?)
