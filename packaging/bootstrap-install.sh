@@ -52,6 +52,8 @@ close_steam() {
     done
 }
 
+# The shell reads this whole function before main runs, so a truncated download cannot run partially.
+main() {
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT HUP INT TERM
 
@@ -74,3 +76,6 @@ Next steps:
   2. Open the Library and find Skjalf TV under Non-Steam.
   3. On a TV, set Game resolution to Native in the Steam Deck display settings.
 MSG
+}
+
+main "$@"
