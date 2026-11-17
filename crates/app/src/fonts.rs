@@ -110,9 +110,22 @@ fn collect_named(dir: &Path, depth: usize, found: &mut Vec<PathBuf>) {
     }
 }
 
-/// egui's defaults first, then each fallback appended to both families.
+/// Noto Emoji 3.002 (Unicode 15), monochrome. It replaces the older copy that
+/// egui bundles under the same name, so newer emoji render instead of boxes.
+const NOTO_EMOJI: &[u8] = include_bytes!("../assets/fonts/NotoEmoji-Regular.ttf");
+const NOTO_EMOJI_NAME: &str = "NotoEmoji-Regular";
+
+/// egui's defaults with a current emoji font, then each fallback appended to
+/// both families.
 pub fn definitions(fonts: Vec<SystemFont>) -> FontDefinitions {
     let mut definitions = FontDefinitions::default();
+    definitions.font_data.insert(
+        NOTO_EMOJI_NAME.to_owned(),
+        std::sync::Arc::new(FontData::from_static(NOTO_EMOJI).tweak(egui::FontTweak {
+            scale: 0.81,
+            ..Default::default()
+        })),
+    );
     for font in fonts {
         definitions.font_data.insert(
             font.name.clone(),
@@ -134,6 +147,28 @@ pub fn install(ctx: &egui::Context) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_bundled_emoji_font_covers_emoji_newer_than_egui_ships() {
+        let ctx = egui::Context::default();
+        ctx.set_fonts(definitions(Vec::new()));
+        let _ = ctx.run(egui::RawInput::default(), |_| {});
+        let font_id = egui::FontId::proportional(18.0);
+        for c in [
+            '\u{1F37F}',
+            '\u{1F975}',
+            '\u{1FAE0}',
+            '\u{1F4FA}',
+            '\u{26BD}',
+            '\u{1F1EC}',
+        ] {
+            assert!(
+                ctx.fonts_mut(|fonts| fonts.has_glyph(&font_id, c)),
+                "U+{:04X} has no glyph",
+                c as u32
+            );
+        }
+    }
 
     const SAMPLE: &str = "\u{1D3F}\u{1D2C}\u{1D42} \u{1D34}\u{1D30} \u{2076}\u{2070} \u{25C9} \u{26BD} \u{0639}\u{0631}\u{0628}\u{064A}";
 
