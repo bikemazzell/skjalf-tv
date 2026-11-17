@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::time::{Duration, Instant};
 
-use skjalf::player::{MpvEngine, PlayerEngine, PlayerError, PlayerEvent};
+use skjalf::player::{BufferPlan, MpvEngine, PlayerEngine, PlayerError, PlayerEvent};
 
 fn clip() -> PathBuf {
     generated_clip("skjalf-m8-testsrc.mp4", 3)
@@ -47,10 +47,8 @@ fn headless_loads_and_plays() {
     let mut saw_eos = false;
     let mut max_pos = 0.0f64;
     while Instant::now() < deadline {
-        if let Some(ev) = e.poll_event() {
-            if matches!(ev, rsmpv::Event::EndFile { .. }) {
-                saw_eos = true;
-            }
+        if e.take_events().contains(&PlayerEvent::Ended) {
+            saw_eos = true;
         }
         max_pos = max_pos.max(e.position().unwrap_or(0.0));
         if saw_eos || max_pos >= 2.0 {
@@ -68,13 +66,13 @@ fn headless_loads_and_plays() {
 #[test]
 #[ignore]
 fn tls_verification_on_by_default() {
-    let e = MpvEngine::new(80, false).expect("libmpv init");
+    let e = MpvEngine::new(80, false, None).expect("libmpv init");
     let verify = e
         .with_client(|c| Ok::<bool, PlayerError>(c.get_property("tls-verify").unwrap_or(true)))
         .expect("property read");
     assert!(verify, "stream credentials must be TLS-protected");
 
-    let e = MpvEngine::new(80, true).expect("libmpv init");
+    let e = MpvEngine::new(80, true, None).expect("libmpv init");
     let verify = e
         .with_client(|c| Ok::<bool, PlayerError>(c.get_property("tls-verify").unwrap_or(true)))
         .expect("property read");
@@ -84,7 +82,7 @@ fn tls_verification_on_by_default() {
 #[test]
 #[ignore]
 fn output_drivers_match_embedded_and_headless_modes() {
-    let embedded = MpvEngine::new(80, false).expect("libmpv init");
+    let embedded = MpvEngine::new(80, false, None).expect("libmpv init");
     let vo: String = embedded
         .with_client(|client| client.get_property("vo").map_err(PlayerError::from))
         .expect("video output property");
@@ -95,6 +93,108 @@ fn output_drivers_match_embedded_and_headless_modes() {
         .with_client(|client| client.get_property("vo").map_err(PlayerError::from))
         .expect("headless video output property");
     assert_eq!(vo, "null");
+}
+
+fn property<T: rsmpv::GetProperty>(engine: &MpvEngine, name: &str) -> T {
+    engine
+        .with_client(|client| client.get_property(name).map_err(PlayerError::from))
+        .unwrap_or_else(|error| panic!("{name}: {error}"))
+}
+
+#[test]
+#[ignore]
+fn a_cache_directory_moves_the_buffer_to_disk_with_a_larger_limit() {
+    let dir = std::env::temp_dir().join(format!("skjalf-disk-cache-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let on_disk = MpvEngine::new(80, false, Some(&dir)).expect("libmpv init");
+    assert!(property::<bool>(&on_disk, "cache-on-disk"));
+    assert_eq!(
+        property::<String>(&on_disk, "cache-dir"),
+        dir.to_str().unwrap()
+    );
+    assert_eq!(property::<i64>(&on_disk, "demuxer-max-bytes"), 4 << 30);
+
+    let in_memory = MpvEngine::new(80, false, None).expect("libmpv init");
+    assert!(!property::<bool>(&in_memory, "cache-on-disk"));
+    assert_eq!(property::<i64>(&in_memory, "demuxer-max-bytes"), 150 << 20);
+    std::fs::remove_dir_all(dir).ok();
+}
+
+/// Poll the engine until `done` holds or time runs out.
+fn poll_until(engine: &mut MpvEngine, done: impl Fn(&MpvEngine) -> bool) -> bool {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while Instant::now() < deadline {
+        engine.take_events();
+        if done(engine) {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    false
+}
+
+fn buffered_load(start_secs: f64, stall_secs: f64) -> MpvEngine {
+    let mut engine = MpvEngine::headless().expect("libmpv init");
+    engine.load(long_clip().to_str().unwrap()).unwrap();
+    engine.pause(false).unwrap();
+    engine
+        .set_buffering(BufferPlan {
+            start_secs,
+            stall_secs,
+        })
+        .unwrap();
+    engine
+}
+
+#[test]
+#[ignore]
+fn a_start_wait_holds_the_file_paused_until_the_buffer_is_full() {
+    let mut engine = buffered_load(60.0, 7.0);
+    assert!(engine.is_paused(), "the file waits paused");
+    let status = engine.buffer_status().expect("buffer status");
+    assert!(status.waiting);
+    assert_eq!(status.target_secs, 60.0);
+    assert!(!property::<bool>(&engine, "cache-pause-initial"));
+    assert_eq!(property::<f64>(&engine, "cache-pause-wait"), 7.0);
+    assert!(
+        poll_until(&mut engine, |engine| !engine.is_paused()),
+        "a local file is read to its end, so playback starts"
+    );
+    let status = engine.buffer_status().expect("buffer status");
+    assert!(!status.waiting);
+    assert_eq!(status.target_secs, 7.0, "later stalls use the stall wait");
+}
+
+#[test]
+#[ignore]
+fn start_now_ends_the_start_wait_at_once() {
+    let mut engine = buffered_load(600.0, 5.0);
+    assert!(engine.is_paused());
+    engine.start_now().unwrap();
+    assert!(!engine.buffer_status().expect("buffer status").waiting);
+    assert!(poll_until(&mut engine, |engine| !engine.is_paused()));
+    assert_eq!(property::<f64>(&engine, "cache-pause-wait"), 5.0);
+}
+
+#[test]
+#[ignore]
+fn start_now_during_a_stall_restores_the_stall_wait_afterward() {
+    let mut engine = buffered_load(0.0, 9.0);
+    assert!(!engine.is_paused());
+    engine.start_now().unwrap();
+    assert!(
+        poll_until(&mut engine, |engine| {
+            let wait = property::<f64>(engine, "cache-pause-wait");
+            (wait - 0.5).abs() < 1e-6 || (wait - 9.0).abs() < 1e-6
+        }),
+        "start now lowers the wait"
+    );
+    assert!(
+        poll_until(&mut engine, |engine| {
+            (property::<f64>(engine, "cache-pause-wait") - 9.0).abs() < 1e-6
+        }),
+        "the stall wait comes back once playback runs"
+    );
 }
 
 #[test]

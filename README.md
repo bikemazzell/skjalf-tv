@@ -29,7 +29,8 @@ The screenshots show the app at the Deck's resolution of 1280x800, connected to 
 - A group filter. For example, type "SI|" to show only the Slovenian groups.
 - A standard transport bar: play, pause, seek, previous and next channel, volume, and favorite.
 - In Game Mode, the Steam on-screen keyboard opens automatically for text fields.
-- Correct right-to-left text for Arabic and Persian titles.
+- Correct right-to-left text for Arabic and Persian titles, and emoji in channel and group names.
+- Buffering for slow connections. A movie or episode can wait until up to 30 minutes of video is buffered, and playback can wait again after a stall.
 - Automatic refresh of the provider data. The default interval is 24 hours.
 - Scaling for the Deck screen (1280x800) and for a TV at 1920x1080.
 
@@ -109,6 +110,17 @@ When the Deck is docked to a TV, open the Skjalf TV properties in Steam and set 
 
 To change the source later, open Settings and select Edit Source. Settings also has Refresh Content and the refresh interval: Off, 6 hours, 12 hours, 24 hours, 48 hours, or 7 days.
 
+### Slow connections
+
+If video stops often to buffer, open Settings and change these values:
+
+- Buffer Before Playback: a movie or episode waits until this much video is buffered. The choices are Off, 1, 2, 5, 10, 20, or 30 minutes. Live TV does not wait, because a live stream arrives in real time.
+- Buffer After a Stall: when playback stops to buffer, it continues after this much video is buffered. The choices are from 1 second to 10 minutes. This setting applies to live TV too.
+
+While playback waits, the screen shows the progress. Press A to start playback at once with the video that is already buffered. The transport bar shows how much video is buffered ahead.
+
+The buffer is a temporary file in `~/.cache/skjalf` (or `$XDG_CACHE_HOME/skjalf`), up to 4 GiB. The player deletes the file name as soon as it opens the file, so the space is free again when playback ends.
+
 ## Privacy
 
 Skjalf TV keeps your settings, favorites, watch progress, and cached catalogs in `~/.config/skjalf` (or `$XDG_CONFIG_HOME/skjalf`). These files contain your provider address and credentials. The app creates them readable only by your user. Treat the whole directory as private.
@@ -165,6 +177,8 @@ Tests never start the real Steam client. To check this, put a fake `steam` scrip
 ## Icons and artwork
 
 The icon shows a TV whose antenna is the rune Algiz (ᛉ), with Odin's all-seeing eye on the screen. The SVG sources are in `packaging/icons`. To render the PNG files again, run `packaging/icons/render.sh`. It needs `rsvg-convert` and the Ubuntu font.
+
+The app includes the Noto Emoji font (version 3.002) in `crates/app/assets/fonts`. It is under the SIL Open Font License; see `NotoEmoji-OFL.txt` in the same directory.
 
 ## License
 

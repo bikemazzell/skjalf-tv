@@ -1,14 +1,9 @@
 //! Settings view: source actions and a credential-free status area.
 
 use egui::{Button, RichText};
+use skjalf_core::model::wait_label;
 
 use crate::app::{App, SettingsFocus};
-
-const BUTTONS: [SettingsFocus; 3] = [
-    SettingsFocus::EditSource,
-    SettingsFocus::RefreshContent,
-    SettingsFocus::RefreshInterval,
-];
 
 pub fn show(ctx: &egui::Context, app: &mut App) {
     if let Some(message) = &app.notice {
@@ -24,13 +19,21 @@ pub fn show(ctx: &egui::Context, app: &mut App) {
         ui.add_space(8.0);
         let width = ui.available_width().min(520.0);
         let busy = app.connect_rx.is_some();
-        for button in BUTTONS {
+        for button in SettingsFocus::ALL {
             let label = match button {
                 SettingsFocus::EditSource => "Edit Source".to_owned(),
                 SettingsFocus::RefreshContent => "Refresh Content".to_owned(),
                 SettingsFocus::RefreshInterval => format!(
                     "Refresh Interval: {}",
                     app.settings.refresh_interval.label()
+                ),
+                SettingsFocus::StartBuffer => format!(
+                    "Buffer Before Playback: {}",
+                    wait_label(app.settings.start_buffer_secs)
+                ),
+                SettingsFocus::StallBuffer => format!(
+                    "Buffer After a Stall: {}",
+                    wait_label(app.settings.stall_buffer_secs)
                 ),
             };
             let selected = app.settings_focus == button;

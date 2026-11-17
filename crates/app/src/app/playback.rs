@@ -57,11 +57,23 @@ impl App {
     }
 
     /// Load `url` into the engine; on failure report it and stay put.
-    pub(super) fn load_media(&mut self, url: &str, start: Option<f64>, now_ms: u64) -> bool {
+    /// `start_wait_secs` of video buffer before playback starts (0: none).
+    pub(super) fn load_media(
+        &mut self,
+        url: &str,
+        start: Option<f64>,
+        start_wait_secs: u32,
+        now_ms: u64,
+    ) -> bool {
+        let plan = crate::player::BufferPlan {
+            start_secs: f64::from(start_wait_secs),
+            stall_secs: f64::from(self.settings.stall_buffer_secs),
+        };
         if let Some(engine) = &mut self.engine {
             let started = engine
                 .load_at(url, start)
                 .and_then(|_| engine.pause(false))
+                .and_then(|_| engine.set_buffering(plan))
                 .and_then(|_| engine.set_volume(if self.muted { 0 } else { self.settings.volume }));
             if let Err(e) = started {
                 let message = format!("Playback error: {e}");
@@ -98,7 +110,7 @@ impl App {
             self.finish_text_edit();
         }
         let url = self.render_template(&item.url);
-        if !self.load_media(&url, item.start, now_ms) {
+        if !self.load_media(&url, item.start, self.settings.start_buffer_secs, now_ms) {
             return;
         }
         self.media = Default::default();

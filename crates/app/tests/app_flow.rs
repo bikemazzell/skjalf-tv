@@ -11,7 +11,7 @@ use skjalf::app::{
     PlaybackStatus, PlayerFocus, RefreshKind, SeriesFocus, SettingsFocus,
 };
 use skjalf::input::Action;
-use skjalf::player::{PlayerEngine, PlayerError, PlayerEvent};
+use skjalf::player::{BufferPlan, BufferStatus, PlayerEngine, PlayerError, PlayerEvent};
 use skjalf::steam_keyboard::{KeyboardLauncher, CLOSE_URI, OPEN_URI};
 use skjalf_core::browse::{BrowserFocus, CategorySel, SortMode};
 use skjalf_core::catalog::{ContentKey, ContentKind, Movie, MovieCatalog};
@@ -32,6 +32,9 @@ struct MockEngine {
     volumes: Arc<Mutex<Vec<u8>>>,
     stopped: Arc<Mutex<usize>>,
     events: Arc<Mutex<Vec<PlayerEvent>>>,
+    plans: Arc<Mutex<Vec<BufferPlan>>>,
+    buffer: Arc<Mutex<Option<BufferStatus>>>,
+    started_now: Arc<Mutex<usize>>,
 }
 
 impl PlayerEngine for MockEngine {
@@ -67,6 +70,17 @@ impl PlayerEngine for MockEngine {
     }
     fn take_events(&mut self) -> Vec<PlayerEvent> {
         std::mem::take(&mut *self.events.lock().unwrap())
+    }
+    fn set_buffering(&mut self, plan: BufferPlan) -> Result<(), PlayerError> {
+        self.plans.lock().unwrap().push(plan);
+        Ok(())
+    }
+    fn buffer_status(&self) -> Option<BufferStatus> {
+        *self.buffer.lock().unwrap()
+    }
+    fn start_now(&mut self) -> Result<(), PlayerError> {
+        *self.started_now.lock().unwrap() += 1;
+        Ok(())
     }
 }
 
@@ -2942,6 +2956,105 @@ fn settings_cycle_the_refresh_interval_and_persist_it() {
 }
 
 #[test]
+fn settings_cycle_the_buffer_waits_and_persist_them() {
+    let mut a = settings_app("buffer_settings");
+    assert_eq!(
+        (a.settings.start_buffer_secs, a.settings.stall_buffer_secs),
+        (0, 1)
+    );
+    press(&mut a, &[Action::Down, Action::Down, Action::Down]);
+    assert_eq!(a.settings_focus, SettingsFocus::StartBuffer);
+    a.handle_action(Action::Right, 0);
+    assert_eq!(a.settings.start_buffer_secs, 60);
+    press(&mut a, &[Action::Left, Action::Left]);
+    assert_eq!(
+        a.settings.start_buffer_secs, 1800,
+        "wraps to the longest wait"
+    );
+    press(&mut a, &[Action::Down, Action::Down]);
+    assert_eq!(
+        a.settings_focus,
+        SettingsFocus::StallBuffer,
+        "stays on the last row"
+    );
+    a.handle_action(Action::Right, 0);
+    a.handle_action(Action::Select, 0);
+    assert_eq!(a.settings.stall_buffer_secs, 10);
+    let saved = a.store.as_ref().unwrap().load_settings().unwrap();
+    assert_eq!(
+        (saved.start_buffer_secs, saved.stall_buffer_secs),
+        (1800, 10)
+    );
+    let ctx = egui::Context::default();
+    skjalf::theme::apply(&ctx);
+    let output = ctx.run(compact_input(vec![]), |ctx| {
+        skjalf::views::settings::show(ctx, &mut a)
+    });
+    let mut labels = Vec::new();
+    for shape in &output.shapes {
+        shape_texts(&shape.shape, &mut labels);
+    }
+    for expected in [
+        "Buffer Before Playback: 30 minutes",
+        "Buffer After a Stall: 10 seconds",
+    ] {
+        assert!(labels.iter().any(|text| text == expected), "{labels:?}");
+    }
+}
+
+#[test]
+fn movies_wait_for_the_start_buffer_and_live_channels_do_not() {
+    let (mut a, _, engine) = movies_app("buffer_plans");
+    a.settings.start_buffer_secs = 600;
+    a.settings.stall_buffer_secs = 30;
+    open_movies(&mut a);
+    all_movies(&mut a);
+    a.handle_action(Action::Select, 0);
+    a.handle_action(Action::Select, 0);
+    assert!(a.is_on_demand());
+    assert_eq!(
+        engine.plans.lock().unwrap().last(),
+        Some(&BufferPlan {
+            start_secs: 600.0,
+            stall_secs: 30.0
+        })
+    );
+
+    let mut live = app("buffer_plans_live");
+    live.settings.start_buffer_secs = 600;
+    live.settings.stall_buffer_secs = 30;
+    let live_engine = MockEngine::default();
+    live.engine = Some(Box::new(live_engine.clone()));
+    live.handle_action(Action::Select, 0);
+    assert_eq!(live.router.current(), View::Player);
+    assert_eq!(
+        live_engine.plans.lock().unwrap().last(),
+        Some(&BufferPlan {
+            start_secs: 0.0,
+            stall_secs: 30.0
+        }),
+        "live streams arrive in real time, so only the stall wait applies"
+    );
+}
+
+#[test]
+fn live_playback_reads_the_buffer_state() {
+    let mut a = app("buffer_live_state");
+    let engine = MockEngine::default();
+    a.engine = Some(Box::new(engine.clone()));
+    a.handle_action(Action::Select, 0);
+    *engine.buffer.lock().unwrap() = Some(BufferStatus {
+        waiting: true,
+        ahead_secs: Some(4.0),
+        target_secs: 30.0,
+    });
+    a.poll_jobs(1_000);
+    assert!(a.media.buffering());
+    a.handle_action(Action::Select, 1_100);
+    assert_eq!(*engine.started_now.lock().unwrap(), 1);
+}
+
+#[test]
 fn live_refresh_during_on_demand_playback_keeps_the_player() {
     let (mut a, _, engine) = movies_app("interval_playback");
     open_movies(&mut a);
@@ -3546,6 +3659,30 @@ fn select_toggles_pause_in_on_demand_playback() {
     a.handle_action(Action::Select, 3_000);
     assert!(!a.paused);
     assert_eq!(*engine.pauses.lock().unwrap(), [false, true, false]);
+}
+
+#[test]
+fn select_while_buffering_starts_playback_instead_of_pausing() {
+    let (mut a, _, engine) = playing_movie("c5_start_now");
+    *engine.buffer.lock().unwrap() = Some(BufferStatus {
+        waiting: true,
+        ahead_secs: Some(42.0),
+        target_secs: 600.0,
+    });
+    a.poll_jobs(2_000);
+    assert!(a.media.buffering());
+    a.handle_action(Action::Select, 2_100);
+    assert_eq!(*engine.started_now.lock().unwrap(), 1);
+    assert!(!a.paused, "start now is not a pause");
+    assert_eq!(*engine.pauses.lock().unwrap(), [false]);
+    assert_eq!(
+        a.status.as_ref().map(|(text, _)| text.as_str()),
+        Some("Starting playback")
+    );
+    assert!(!a.media.buffering());
+
+    a.activate_bar_control(skjalf::app::BarControl::PlayPause, 2_200);
+    assert!(a.paused, "once playing, Play/Pause pauses again");
 }
 
 #[test]

@@ -6,6 +6,7 @@ use skjalf_core::nav::OsdKind;
 
 use super::{App, Playback, PlayerFocus};
 use crate::input::Action;
+use crate::player::BufferStatus;
 
 /// One control in the transport bar.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -68,18 +69,27 @@ pub fn bar_controls(on_demand: bool) -> &'static [BarControl] {
     }
 }
 
-/// Last position and duration read from the engine.
+/// Last position, duration, and buffer state read from the engine.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct MediaClock {
     pub position: Option<f64>,
     pub duration: Option<f64>,
+    pub buffer: Option<BufferStatus>,
     read_at_ms: Option<u64>,
 }
 
+impl MediaClock {
+    /// True while playback waits for the buffer to fill.
+    pub fn buffering(&self) -> bool {
+        self.buffer.is_some_and(|buffer| buffer.waiting)
+    }
+}
+
 impl App {
-    /// Read position and duration for the on-demand bar, rate limited.
+    /// Read the buffer state, and position and duration for the on-demand
+    /// bar, rate limited.
     pub(super) fn refresh_media_clock(&mut self, now_ms: u64) {
-        if !self.is_on_demand() || self.router.current() != skjalf_core::nav::View::Player {
+        if self.router.current() != skjalf_core::nav::View::Player {
             return;
         }
         if self
@@ -90,8 +100,11 @@ impl App {
             return;
         }
         if let Some(engine) = &self.engine {
-            self.media.position = engine.position();
-            self.media.duration = engine.duration();
+            self.media.buffer = engine.buffer_status();
+            if self.is_on_demand() {
+                self.media.position = engine.position();
+                self.media.duration = engine.duration();
+            }
         }
         self.media.read_at_ms = Some(now_ms);
     }
@@ -118,6 +131,7 @@ impl App {
     fn video_action(&mut self, action: Action, now_ms: u64) {
         let on_demand = self.is_on_demand();
         match action {
+            Action::Select if self.media.buffering() => self.start_now(now_ms),
             Action::Down => self.player_focus = PlayerFocus::Controls(DEFAULT_CONTROL),
             Action::Up if on_demand => self.player.show_osd(OsdKind::Info, now_ms),
             Action::Back => self.leave_player(now_ms),
@@ -217,7 +231,24 @@ impl App {
         self.show_status(text, now_ms);
     }
 
+    /// Play what is already buffered instead of waiting for the full buffer.
+    pub fn start_now(&mut self, now_ms: u64) {
+        if let Some(engine) = &mut self.engine {
+            if let Err(error) = engine.start_now() {
+                self.notice = Some(format!("Playback error: {error}"));
+                return;
+            }
+        }
+        if let Some(buffer) = &mut self.media.buffer {
+            buffer.waiting = false;
+        }
+        self.show_status("Starting playback".into(), now_ms);
+    }
+
     pub fn toggle_pause(&mut self, now_ms: u64) {
+        if self.media.buffering() {
+            return self.start_now(now_ms);
+        }
         let paused = !self.paused;
         if let Some(engine) = &mut self.engine {
             if let Err(error) = engine.pause(paused) {

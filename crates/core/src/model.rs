@@ -154,6 +154,44 @@ pub struct Settings {
     /// Last successful refresh per source id.
     #[serde(default)]
     pub last_refresh: std::collections::BTreeMap<String, RefreshTimes>,
+    /// Seconds of video to buffer before a movie or episode starts.
+    #[serde(default)]
+    pub start_buffer_secs: u32,
+    /// Seconds of video to buffer before playback resumes after a stall.
+    #[serde(default = "default_stall_buffer_secs")]
+    pub stall_buffer_secs: u32,
+}
+
+fn default_stall_buffer_secs() -> u32 {
+    STALL_BUFFER_CHOICES[0]
+}
+
+/// Choices for [`Settings::start_buffer_secs`]; 0 starts at once.
+pub const START_BUFFER_CHOICES: [u32; 7] = [0, 60, 120, 300, 600, 1200, 1800];
+
+/// Choices for [`Settings::stall_buffer_secs`]; 1 second is mpv's own default.
+pub const STALL_BUFFER_CHOICES: [u32; 8] = [1, 5, 10, 30, 60, 120, 300, 600];
+
+/// The next or previous choice after `current`, wrapping around. A value
+/// that is not a choice moves to the first choice.
+pub fn cycle_choice(choices: &[u32], current: u32, forward: bool) -> u32 {
+    let len = choices.len();
+    match choices.iter().position(|choice| *choice == current) {
+        Some(index) if forward => choices[(index + 1) % len],
+        Some(index) => choices[(index + len - 1) % len],
+        None => choices[0],
+    }
+}
+
+/// "Off", "5 seconds", "1 minute", or "10 minutes".
+pub fn wait_label(secs: u32) -> String {
+    match secs {
+        0 => "Off".into(),
+        1 => "1 second".into(),
+        60 => "1 minute".into(),
+        secs if secs % 60 == 0 => format!("{} minutes", secs / 60),
+        secs => format!("{secs} seconds"),
+    }
 }
 
 /// Background refresh interval; Hours24 is the default.
@@ -262,6 +300,8 @@ impl Default for Settings {
             sort_modes: SortModes::default(),
             refresh_interval: RefreshInterval::default(),
             last_refresh: Default::default(),
+            start_buffer_secs: 0,
+            stall_buffer_secs: default_stall_buffer_secs(),
         }
     }
 }
@@ -275,6 +315,39 @@ impl Settings {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn buffer_choices_cycle_both_ways_and_wrap() {
+        assert_eq!(cycle_choice(&START_BUFFER_CHOICES, 0, true), 60);
+        assert_eq!(cycle_choice(&START_BUFFER_CHOICES, 1800, true), 0);
+        assert_eq!(cycle_choice(&START_BUFFER_CHOICES, 0, false), 1800);
+        assert_eq!(cycle_choice(&STALL_BUFFER_CHOICES, 30, false), 10);
+    }
+
+    #[test]
+    fn an_unknown_buffer_value_moves_to_the_first_choice() {
+        assert_eq!(cycle_choice(&STALL_BUFFER_CHOICES, 45, true), 1);
+        assert_eq!(cycle_choice(&START_BUFFER_CHOICES, 7, false), 0);
+    }
+
+    #[test]
+    fn wait_labels_read_naturally() {
+        let labels: Vec<String> = [0, 1, 5, 60, 120, 1800]
+            .into_iter()
+            .map(wait_label)
+            .collect();
+        assert_eq!(
+            labels,
+            [
+                "Off",
+                "1 second",
+                "5 seconds",
+                "1 minute",
+                "2 minutes",
+                "30 minutes"
+            ]
+        );
+    }
     use chrono::{NaiveDate, NaiveDateTime};
 
     fn xtream_source() -> Source {

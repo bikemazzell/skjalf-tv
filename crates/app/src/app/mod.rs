@@ -318,7 +318,11 @@ impl App {
     pub fn new(store_dir: &std::path::Path, initial_volume: u8) -> Self {
         let mut app = Self::with_store(store_dir);
         let ignore_ssl = app.settings.ignore_ssl;
-        if let Ok(engine) = crate::player::MpvEngine::new(initial_volume, ignore_ssl) {
+        if let Ok(engine) = crate::player::MpvEngine::new(
+            initial_volume,
+            ignore_ssl,
+            crate::player_cache_dir().as_deref(),
+        ) {
             app.engine = Some(Box::new(engine));
         }
         app
@@ -777,9 +781,10 @@ impl App {
             self.finish_text_edit();
         }
         let url = self.render_template(&channel.url);
-        if !self.load_media(&url, None, now_ms) {
+        if !self.load_media(&url, None, 0, now_ms) {
             return; // stay on the current view; nothing is playing
         }
+        self.media = Default::default();
         self.playback_status = PlaybackStatus::Loading;
         self.notice = Some(format!("Loading {}…", channel.name));
         self.player.channel_id = Some(channel.id.clone());

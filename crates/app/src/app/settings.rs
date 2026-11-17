@@ -15,6 +15,39 @@ pub enum SettingsFocus {
     EditSource,
     RefreshContent,
     RefreshInterval,
+    StartBuffer,
+    StallBuffer,
+}
+
+impl SettingsFocus {
+    /// Top-to-bottom order on the Settings screen.
+    pub const ALL: [SettingsFocus; 5] = [
+        SettingsFocus::EditSource,
+        SettingsFocus::RefreshContent,
+        SettingsFocus::RefreshInterval,
+        SettingsFocus::StartBuffer,
+        SettingsFocus::StallBuffer,
+    ];
+
+    fn step(self, down: bool) -> Self {
+        let index = Self::ALL.iter().position(|item| *item == self).unwrap_or(0);
+        let next = if down {
+            (index + 1).min(Self::ALL.len() - 1)
+        } else {
+            index.saturating_sub(1)
+        };
+        Self::ALL[next]
+    }
+
+    /// Rows that change a value with Left and Right.
+    fn cycles(self) -> bool {
+        matches!(
+            self,
+            SettingsFocus::RefreshInterval
+                | SettingsFocus::StartBuffer
+                | SettingsFocus::StallBuffer
+        )
+    }
 }
 
 impl App {
@@ -25,22 +58,11 @@ impl App {
 
     pub(super) fn handle_settings(&mut self, action: Action) {
         match action {
-            Action::Up => {
-                self.settings_focus = match self.settings_focus {
-                    SettingsFocus::RefreshInterval => SettingsFocus::RefreshContent,
-                    _ => SettingsFocus::EditSource,
-                }
+            Action::Up | Action::Down => {
+                self.settings_focus = self.settings_focus.step(action == Action::Down)
             }
-            Action::Down => {
-                self.settings_focus = match self.settings_focus {
-                    SettingsFocus::EditSource => SettingsFocus::RefreshContent,
-                    _ => SettingsFocus::RefreshInterval,
-                }
-            }
-            Action::Left | Action::Right
-                if self.settings_focus == SettingsFocus::RefreshInterval =>
-            {
-                self.cycle_refresh_interval(action == Action::Right)
+            Action::Left | Action::Right if self.settings_focus.cycles() => {
+                self.cycle_setting(self.settings_focus, action == Action::Right)
             }
             Action::Select => self.activate_settings_button(self.settings_focus),
             Action::Back => {
@@ -55,8 +77,33 @@ impl App {
         match button {
             SettingsFocus::EditSource => self.open_source_editor(),
             SettingsFocus::RefreshContent => self.refresh_content(),
-            SettingsFocus::RefreshInterval => self.cycle_refresh_interval(true),
+            SettingsFocus::RefreshInterval
+            | SettingsFocus::StartBuffer
+            | SettingsFocus::StallBuffer => self.cycle_setting(button, true),
         }
+    }
+
+    fn cycle_setting(&mut self, row: SettingsFocus, forward: bool) {
+        use skjalf_core::model::{cycle_choice, STALL_BUFFER_CHOICES, START_BUFFER_CHOICES};
+        match row {
+            SettingsFocus::RefreshInterval => return self.cycle_refresh_interval(forward),
+            SettingsFocus::StartBuffer => {
+                self.settings.start_buffer_secs = cycle_choice(
+                    &START_BUFFER_CHOICES,
+                    self.settings.start_buffer_secs,
+                    forward,
+                )
+            }
+            SettingsFocus::StallBuffer => {
+                self.settings.stall_buffer_secs = cycle_choice(
+                    &STALL_BUFFER_CHOICES,
+                    self.settings.stall_buffer_secs,
+                    forward,
+                )
+            }
+            SettingsFocus::EditSource | SettingsFocus::RefreshContent => return,
+        }
+        self.save_settings();
     }
 
     pub fn open_source_editor(&mut self) {

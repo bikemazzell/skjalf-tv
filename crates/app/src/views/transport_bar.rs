@@ -68,7 +68,10 @@ fn clock_text(secs: Option<f64>) -> String {
 
 fn seek_row(ui: &mut egui::Ui, app: &mut App, now_ms: u64) {
     let (position, duration) = (app.media.position, app.media.duration);
-    let text = format!("{} / {}", clock_text(position), clock_text(duration));
+    let mut text = format!("{} / {}", clock_text(position), clock_text(duration));
+    if let Some(ahead) = app.media.buffer.and_then(|buffer| buffer.ahead_secs) {
+        text.push_str(&format!("  ({} buffered)", format_duration(ahead as u64)));
+    }
     let galley = ui.painter().layout_no_wrap(
         text,
         egui::TextStyle::Body.resolve(ui.style()),

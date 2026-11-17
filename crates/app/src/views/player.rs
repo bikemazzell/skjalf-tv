@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use egui::Color32;
 use egui_glow::glow::HasContext;
+use skjalf_core::catalog::format_duration;
 use skjalf_core::display::visual_text;
 use skjalf_core::nav::OsdKind;
 
@@ -62,6 +63,43 @@ pub fn show(ctx: &egui::Context, app: &mut App, now_ms: u64) {
 
     if video_tapped {
         app.player.show_osd(OsdKind::Info, now_ms);
+    }
+
+    if let Some(buffer) = app.media.buffer.filter(|buffer| buffer.waiting) {
+        let ahead = buffer.ahead_secs.unwrap_or(0.0).min(buffer.target_secs);
+        let percent = if buffer.target_secs > 0.0 {
+            (ahead / buffer.target_secs * 100.0).floor()
+        } else {
+            0.0
+        };
+        egui::Area::new("buffering".into())
+            .order(egui::Order::Foreground)
+            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+            .show(ctx, |ui| {
+                egui::Frame::NONE
+                    .fill(Color32::from_black_alpha(210))
+                    .inner_margin(16.0)
+                    .show(ui, |ui| {
+                        ui.vertical_centered(|ui| {
+                            ui.add(
+                                egui::Label::new(
+                                    egui::RichText::new(format!(
+                                        "Buffering {} of {} ({percent:.0}%)",
+                                        format_duration(ahead as u64),
+                                        format_duration(buffer.target_secs.ceil() as u64)
+                                    ))
+                                    .size(crate::theme::HEADING_SIZE)
+                                    .color(Color32::WHITE),
+                                )
+                                .wrap_mode(egui::TextWrapMode::Extend),
+                            );
+                            ui.label(
+                                egui::RichText::new("Press A to start now")
+                                    .color(Color32::LIGHT_GRAY),
+                            );
+                        });
+                    });
+            });
     }
 
     if visible && kind == OsdKind::Epg && !app.is_on_demand() {

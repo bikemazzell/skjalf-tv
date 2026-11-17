@@ -37,6 +37,24 @@ pub fn config_dir() -> PathBuf {
     config_base().join("skjalf")
 }
 
+/// Private directory for mpv's disk buffer (`$XDG_CACHE_HOME/skjalf`).
+/// `None` when it cannot be created; mpv then buffers in memory.
+pub fn player_cache_dir() -> Option<PathBuf> {
+    use std::os::unix::fs::DirBuilderExt;
+    let base = std::env::var_os("XDG_CACHE_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".cache")
+        });
+    let dir = base.join("skjalf");
+    std::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(&dir)
+        .ok()
+        .map(|()| dir)
+}
+
 /// Launch the app window (dark theme, fullscreen in Game Mode).
 pub fn run() -> eframe::Result {
     let game_mode = detect::from_env();
@@ -66,7 +84,7 @@ pub fn run() -> eframe::Result {
 
             // Attach the mpv render context while the GL context is current.
             let (vol, ignore_ssl) = (app.settings.volume, app.settings.ignore_ssl);
-            match player::MpvEngine::new(vol, ignore_ssl) {
+            match player::MpvEngine::new(vol, ignore_ssl, player_cache_dir().as_deref()) {
                 Ok(mut engine) if cc.gl.is_some() => {
                     // SAFETY: the eframe creator closure runs with the GL
                     // context current on this thread.

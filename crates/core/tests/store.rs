@@ -75,6 +75,8 @@ fn settings_roundtrip() {
             },
         )]
         .into(),
+        start_buffer_secs: 600,
+        stall_buffer_secs: 30,
     };
     store.save_settings(&s).unwrap();
     assert!(
@@ -101,6 +103,8 @@ fn settings_without_sort_modes_load_as_provider_order() {
     assert_eq!(loaded.refresh_interval, RefreshInterval::Hours24);
     assert!(loaded.last_refresh.is_empty());
     assert_eq!(loaded.volume, 60);
+    assert_eq!(loaded.start_buffer_secs, 0);
+    assert_eq!(loaded.stall_buffer_secs, 1);
     std::fs::remove_dir_all(dir).ok();
 }
 
