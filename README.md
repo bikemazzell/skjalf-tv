@@ -8,6 +8,8 @@ The name comes from Hliðskjálf, the high seat from which Odin watches all nine
 
 Skjalf TV contains no channels or content. You need your own IPTV subscription or playlist.
 
+<a href="https://alternativeto.net/software/skjalf-tv/about/?utm_source=badge&utm_medium=referral"><img src="https://alternativeto.net/static/badges/badge-compact-color.svg" alt="Skjalf TV | AlternativeTo" width="171" height="55"></a>
+
 ![The main screen with Continue Watching, Latest Movies, and Latest Series](docs/screenshots/home.png)
 
 | Live TV with favorites | The live player with program information |
