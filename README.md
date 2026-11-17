@@ -8,6 +8,14 @@ The name comes from Hliðskjálf, the high seat from which Odin watches all nine
 
 Skjalf TV contains no channels or content. You need your own IPTV subscription or playlist.
 
+![The main screen with Continue Watching, Latest Movies, and Latest Series](docs/screenshots/home.png)
+
+| Live TV with favorites | The live player with program information |
+|---|---|
+| ![Live TV channel list](docs/screenshots/live-tv.png) | ![Live player with the transport bar](docs/screenshots/player.png) |
+
+The screenshots show the app at the Deck's resolution of 1280x800, connected to a test server with made-up titles.
+
 ## Features
 
 - Live TV with channel groups, search, name sort, favorites, channel numbers, and channel zapping.
@@ -152,6 +160,7 @@ Tests never start the real Steam client. To check this, put a fake `steam` scrip
 | `crates/app` | The egui app: views, input, the libmpv player, and the Steam keyboard |
 | `packaging` | The SteamOS installer, runtime lock file, Steam shortcut writer, icons, and their tests |
 | `.github/workflows` | Continuous integration and the release build |
+| `docs/screenshots` | The screenshots in this README |
 
 ## Icons and artwork
 
