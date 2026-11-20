@@ -169,7 +169,13 @@ pub struct Settings {
     /// Preferred subtitle language while subtitles are on; None = stream default.
     #[serde(default)]
     pub subtitle_lang: Option<String>,
+    /// HTTP User-Agent for the provider; empty means [`DEFAULT_USER_AGENT`].
+    #[serde(default)]
+    pub user_agent: String,
 }
+
+/// The app's own User-Agent: product name and version.
+pub const DEFAULT_USER_AGENT: &str = concat!("SkjalfTV/", env!("CARGO_PKG_VERSION"));
 
 fn default_stall_buffer_secs() -> u32 {
     STALL_BUFFER_CHOICES[0]
@@ -314,11 +320,26 @@ impl Default for Settings {
             audio_lang: None,
             subtitles_on: false,
             subtitle_lang: None,
+            user_agent: String::new(),
         }
     }
 }
 
 impl Settings {
+    /// The User-Agent to send: the setting as printable ASCII (a header value
+    /// must not carry line breaks), or the default when that is empty.
+    pub fn effective_user_agent(&self) -> String {
+        let clean: String = self
+            .user_agent
+            .chars()
+            .filter(|c| c.is_ascii() && !c.is_ascii_control())
+            .collect();
+        match clean.trim() {
+            "" => DEFAULT_USER_AGENT.to_owned(),
+            value => value.to_owned(),
+        }
+    }
+
     /// The subtitle choice that every new stream starts with.
     pub fn subtitle_pref(&self) -> SubtitlePref {
         match (&self.subtitle_lang, self.subtitles_on) {
@@ -479,6 +500,40 @@ mod tests {
         assert_eq!(s.volume, 100);
         s.set_volume(50);
         assert_eq!(s.volume, 50);
+    }
+
+    #[test]
+    fn user_agent_defaults_to_the_app_name_and_version() {
+        let default = format!("SkjalfTV/{}", env!("CARGO_PKG_VERSION"));
+        assert_eq!(DEFAULT_USER_AGENT, default);
+        assert_eq!(Settings::default().effective_user_agent(), default);
+        let blank = Settings {
+            user_agent: "   ".into(),
+            ..Default::default()
+        };
+        assert_eq!(blank.effective_user_agent(), default);
+    }
+
+    #[test]
+    fn user_agent_keeps_a_custom_value_as_printable_ascii() {
+        let custom = |ua: &str| {
+            Settings {
+                user_agent: ua.into(),
+                ..Default::default()
+            }
+            .effective_user_agent()
+        };
+        assert_eq!(
+            custom(" VLC/3.0.20 LibVLC/3.0.20 "),
+            "VLC/3.0.20 LibVLC/3.0.20"
+        );
+        assert_eq!(
+            custom("Foo\r\nX-Injected: 1"),
+            "FooX-Injected: 1",
+            "no header injection"
+        );
+        assert_eq!(custom("Caf\u{e9}/1"), "Caf/1", "header values stay ASCII");
+        assert_eq!(custom("\r\n"), DEFAULT_USER_AGENT);
     }
 
     #[test]

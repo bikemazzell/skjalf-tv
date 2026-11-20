@@ -85,6 +85,8 @@ pub enum TextTarget {
     Search(BrowserId),
     /// The sidebar's "Filter groups" field.
     GroupFilter(BrowserId),
+    /// The User Agent row on the Settings screen.
+    UserAgent,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -221,7 +223,10 @@ impl App {
         let (catalog_tx, catalog_rx) = mpsc::channel();
         let mut app = Self {
             store,
-            fetcher: Arc::new(UreqFetcher::new(settings.ignore_ssl)),
+            fetcher: Arc::new(
+                UreqFetcher::new(settings.ignore_ssl)
+                    .with_user_agent(&settings.effective_user_agent()),
+            ),
             settings,
             favorites,
             playlist: None,
@@ -325,6 +330,7 @@ impl App {
         if let Ok(engine) = crate::player::MpvEngine::new(
             initial_volume,
             ignore_ssl,
+            &app.settings.effective_user_agent(),
             crate::player_cache_dir().as_deref(),
         ) {
             app.engine = Some(Box::new(engine));
@@ -502,6 +508,7 @@ impl App {
                 };
             }
             Some(TextTarget::GroupFilter(id)) => self.focus_first_matching_group(id),
+            Some(TextTarget::UserAgent) => self.apply_user_agent(),
             _ => {}
         }
     }

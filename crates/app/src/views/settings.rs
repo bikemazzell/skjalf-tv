@@ -1,10 +1,10 @@
 //! Settings view: source actions and a credential-free status area.
 
 use egui::{Button, RichText};
-use skjalf_core::model::wait_label;
+use skjalf_core::model::{wait_label, DEFAULT_USER_AGENT};
 use skjalf_core::tracks::language_pref_label;
 
-use crate::app::{App, SettingsFocus};
+use crate::app::{App, SettingsFocus, TextTarget};
 
 /// The Settings content is a centered column, at most this wide.
 const COLUMN_WIDTH: f32 = 640.0;
@@ -29,6 +29,10 @@ pub fn show(ctx: &egui::Context, app: &mut App) {
                 ui.add_space(8.0);
                 let busy = app.connect_rx.is_some();
                 for button in SettingsFocus::ALL {
+                    if button == SettingsFocus::UserAgent && app.user_agent_editing() {
+                        user_agent_field(ui, app, width);
+                        continue;
+                    }
                     let label = match button {
                         SettingsFocus::EditSource => "Edit Source".to_owned(),
                         SettingsFocus::RefreshContent => "Refresh Content".to_owned(),
@@ -60,6 +64,9 @@ pub fn show(ctx: &egui::Context, app: &mut App) {
                             "Subtitle Language: {}",
                             language_pref_label(app.settings.subtitle_lang.as_deref())
                         ),
+                        SettingsFocus::UserAgent => {
+                            format!("User Agent: {}", app.settings.effective_user_agent())
+                        }
                     };
                     let selected = app.settings_focus == button;
                     let text = RichText::new(label);
@@ -90,5 +97,20 @@ pub fn show(ctx: &egui::Context, app: &mut App) {
     });
     if let Some(button) = activated {
         app.activate_settings_button(button);
+    }
+}
+
+/// The User Agent row while it is edited; empty shows the default as a hint.
+fn user_agent_field(ui: &mut egui::Ui, app: &mut App, width: f32) {
+    let mut text = app.settings.user_agent.clone();
+    let response = ui.add_sized(
+        [width, crate::theme::MIN_HIT],
+        egui::TextEdit::singleline(&mut text).hint_text(DEFAULT_USER_AGENT),
+    );
+    if app.take_focus_request(TextTarget::UserAgent) {
+        response.request_focus();
+    }
+    if text != app.settings.user_agent {
+        app.set_user_agent_text(text);
     }
 }

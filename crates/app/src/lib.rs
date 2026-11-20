@@ -84,7 +84,13 @@ pub fn run() -> eframe::Result {
 
             // Attach the mpv render context while the GL context is current.
             let (vol, ignore_ssl) = (app.settings.volume, app.settings.ignore_ssl);
-            match player::MpvEngine::new(vol, ignore_ssl, player_cache_dir().as_deref()) {
+            let user_agent = app.settings.effective_user_agent();
+            match player::MpvEngine::new(
+                vol,
+                ignore_ssl,
+                &user_agent,
+                player_cache_dir().as_deref(),
+            ) {
                 Ok(mut engine) if cc.gl.is_some() => {
                     // SAFETY: the eframe creator closure runs with the GL
                     // context current on this thread.

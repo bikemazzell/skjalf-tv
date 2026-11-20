@@ -68,13 +68,13 @@ fn headless_loads_and_plays() {
 #[test]
 #[ignore]
 fn tls_verification_on_by_default() {
-    let e = MpvEngine::new(80, false, None).expect("libmpv init");
+    let e = MpvEngine::new(80, false, "SkjalfTV/test", None).expect("libmpv init");
     let verify = e
         .with_client(|c| Ok::<bool, PlayerError>(c.get_property("tls-verify").unwrap_or(true)))
         .expect("property read");
     assert!(verify, "stream credentials must be TLS-protected");
 
-    let e = MpvEngine::new(80, true, None).expect("libmpv init");
+    let e = MpvEngine::new(80, true, "SkjalfTV/test", None).expect("libmpv init");
     let verify = e
         .with_client(|c| Ok::<bool, PlayerError>(c.get_property("tls-verify").unwrap_or(true)))
         .expect("property read");
@@ -84,7 +84,7 @@ fn tls_verification_on_by_default() {
 #[test]
 #[ignore]
 fn output_drivers_match_embedded_and_headless_modes() {
-    let embedded = MpvEngine::new(80, false, None).expect("libmpv init");
+    let embedded = MpvEngine::new(80, false, "SkjalfTV/test", None).expect("libmpv init");
     let vo: String = embedded
         .with_client(|client| client.get_property("vo").map_err(PlayerError::from))
         .expect("video output property");
@@ -108,7 +108,7 @@ fn property<T: rsmpv::GetProperty>(engine: &MpvEngine, name: &str) -> T {
 fn a_cache_directory_moves_the_buffer_to_disk_with_a_larger_limit() {
     let dir = std::env::temp_dir().join(format!("skjalf-disk-cache-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
-    let on_disk = MpvEngine::new(80, false, Some(&dir)).expect("libmpv init");
+    let on_disk = MpvEngine::new(80, false, "SkjalfTV/test", Some(&dir)).expect("libmpv init");
     assert!(property::<bool>(&on_disk, "cache-on-disk"));
     assert_eq!(
         property::<String>(&on_disk, "demuxer-cache-dir"),
@@ -116,7 +116,7 @@ fn a_cache_directory_moves_the_buffer_to_disk_with_a_larger_limit() {
     );
     assert_eq!(property::<i64>(&on_disk, "demuxer-max-bytes"), 4 << 30);
 
-    let in_memory = MpvEngine::new(80, false, None).expect("libmpv init");
+    let in_memory = MpvEngine::new(80, false, "SkjalfTV/test", None).expect("libmpv init");
     assert!(!property::<bool>(&in_memory, "cache-on-disk"));
     assert_eq!(property::<i64>(&in_memory, "demuxer-max-bytes"), 150 << 20);
     std::fs::remove_dir_all(dir).ok();
@@ -636,4 +636,13 @@ fn a_subtitle_language_that_is_missing_shows_no_subtitles() {
         Some("eng")
     );
     assert!(selected(&tracks, TrackKind::Sub).is_none(), "{tracks:?}");
+}
+
+#[test]
+#[ignore]
+fn the_user_agent_reaches_mpv() {
+    let mut e = MpvEngine::new(80, false, "SkjalfTV/test", None).unwrap();
+    assert_eq!(property::<String>(&e, "user-agent"), "SkjalfTV/test");
+    e.set_user_agent("MyPlayer/1.0").unwrap();
+    assert_eq!(property::<String>(&e, "user-agent"), "MyPlayer/1.0");
 }

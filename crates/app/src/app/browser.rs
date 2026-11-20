@@ -829,7 +829,7 @@ impl App {
         self.start_text_edit(TextTarget::GroupFilter(id));
     }
 
-    fn start_text_edit(&mut self, target: TextTarget) {
+    pub(super) fn start_text_edit(&mut self, target: TextTarget) {
         if self.editing != Some(target) {
             self.editing = Some(target);
             self.focus_request = Some(target);

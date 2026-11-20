@@ -43,6 +43,7 @@ struct MockEngine {
     tracks: Arc<Mutex<Vec<Track>>>,
     /// Track preferences per call, with the number of loads made before it.
     prefs: Arc<Mutex<Vec<PrefsCall>>>,
+    user_agents: Arc<Mutex<Vec<String>>>,
 }
 
 impl PlayerEngine for MockEngine {
@@ -92,6 +93,10 @@ impl PlayerEngine for MockEngine {
     }
     fn tracks(&self) -> Vec<Track> {
         self.tracks.lock().unwrap().clone()
+    }
+    fn set_user_agent(&mut self, user_agent: &str) -> Result<(), PlayerError> {
+        self.user_agents.lock().unwrap().push(user_agent.to_owned());
+        Ok(())
     }
     fn select_track(&mut self, kind: TrackKind, id: Option<i64>) -> Result<(), PlayerError> {
         for track in self.tracks.lock().unwrap().iter_mut() {
@@ -7241,12 +7246,8 @@ fn settings_set_the_languages_and_subtitles_for_every_stream() {
     a.handle_action(Action::Select, 0);
     assert!(a.settings.subtitles_on);
 
-    press(&mut a, &[Action::Down, Action::Down]);
-    assert_eq!(
-        a.settings_focus,
-        SettingsFocus::SubtitleLanguage,
-        "stays on the last row"
-    );
+    a.handle_action(Action::Down, 0);
+    assert_eq!(a.settings_focus, SettingsFocus::SubtitleLanguage);
     press(&mut a, &[Action::Right, Action::Right]);
     assert_eq!(a.settings.subtitle_lang.as_deref(), Some("de"));
 
@@ -7293,4 +7294,54 @@ fn settings_buttons_form_a_centered_column() {
         assert!((rect.width() - 640.0).abs() < 1.0, "640 wide: {rect:?}");
         assert!((rect.center().x - 512.0).abs() < 2.0, "centered: {rect:?}");
     }
+}
+
+fn enter_key() -> egui::Event {
+    egui::Event::Key {
+        key: egui::Key::Enter,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: Default::default(),
+    }
+}
+
+#[test]
+fn settings_edit_the_user_agent_and_apply_it_at_once() {
+    let mut a = settings_app("user_agent");
+    let engine = MockEngine::default();
+    a.engine = Some(Box::new(engine.clone()));
+    press(&mut a, &[Action::Down; 9]);
+    assert_eq!(
+        a.settings_focus,
+        SettingsFocus::UserAgent,
+        "stays on the last row"
+    );
+    let default = skjalf_core::model::DEFAULT_USER_AGENT;
+    let (labels, _) = render_labels(&mut a, skjalf::views::settings::show);
+    assert!(
+        labels
+            .iter()
+            .any(|l| *l == format!("User Agent: {default}")),
+        "{labels:?}"
+    );
+
+    a.handle_action(Action::Select, 0);
+    assert!(a.user_agent_editing());
+    a.set_user_agent_text("MyPlayer/1.0".into());
+    assert!(a.pump_event(&enter_key(), 0), "Enter finishes the edit");
+    assert!(!a.user_agent_editing());
+    assert_eq!(saved_settings(&a).user_agent, "MyPlayer/1.0");
+    assert_eq!(*engine.user_agents.lock().unwrap(), ["MyPlayer/1.0"]);
+    let (labels, _) = render_labels(&mut a, skjalf::views::settings::show);
+    assert!(
+        labels.iter().any(|l| l == "User Agent: MyPlayer/1.0"),
+        "{labels:?}"
+    );
+
+    a.handle_action(Action::Select, 0);
+    a.set_user_agent_text(String::new());
+    a.pump_event(&enter_key(), 0);
+    assert_eq!(engine.user_agents.lock().unwrap().last().unwrap(), default);
+    assert_eq!(saved_settings(&a).user_agent, "");
 }

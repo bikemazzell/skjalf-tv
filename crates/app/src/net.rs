@@ -4,23 +4,34 @@ use std::io::{self, Read};
 use std::sync::Arc;
 use std::time::Duration;
 
+use skjalf_core::model::DEFAULT_USER_AGENT;
 use skjalf_core::xtream::{FetchError, FetchLimits, HttpFetcher};
 
 /// Thin blocking fetcher; `ignore_ssl` skips certificate verification
 /// (common for IPTV provider hosts with self-signed certs).
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct UreqFetcher {
     ignore_ssl: bool,
     max_response_bytes: usize,
     request_timeout: Duration,
+    user_agent: Arc<str>,
 }
 
 impl UreqFetcher {
+    /// A fetcher that names the app ([`DEFAULT_USER_AGENT`]).
     pub fn new(ignore_ssl: bool) -> Self {
         Self {
             ignore_ssl,
             max_response_bytes: FetchLimits::DEFAULT.max_bytes,
             request_timeout: FetchLimits::DEFAULT.timeout,
+            user_agent: DEFAULT_USER_AGENT.into(),
+        }
+    }
+
+    pub fn with_user_agent(self, user_agent: &str) -> Self {
+        Self {
+            user_agent: user_agent.into(),
+            ..self
         }
     }
 
@@ -28,6 +39,7 @@ impl UreqFetcher {
         // Connect bound short, overall bound generous: a server that accepts
         // and then stalls must not hang setup or EPG workers forever.
         let mut builder = ureq::AgentBuilder::new()
+            .user_agent(&self.user_agent)
             .timeout_connect(Duration::from_secs(10))
             .timeout(self.request_timeout);
         if self.ignore_ssl {
@@ -54,7 +66,7 @@ impl HttpFetcher for UreqFetcher {
         Self {
             max_response_bytes: limits.max_bytes,
             request_timeout: limits.timeout,
-            ..*self
+            ..self.clone()
         }
         .fetch(url)
     }
@@ -116,6 +128,49 @@ mod tests {
     use super::*;
     use std::io::{Read, Write};
     use std::net::TcpListener;
+
+    /// Serve one request and return the request text the server received.
+    fn capture_request(fetcher: UreqFetcher) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/x", listener.local_addr().unwrap());
+        let worker = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let mut request = vec![0u8; 4096];
+            let read = socket.read(&mut request).unwrap();
+            let _ = socket
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok");
+            String::from_utf8_lossy(&request[..read]).into_owned()
+        });
+        assert_eq!(fetcher.get(&url).unwrap(), "ok");
+        worker.join().unwrap()
+    }
+
+    fn user_agent_header(request: &str) -> Option<&str> {
+        request.lines().find_map(|line| {
+            line.strip_prefix("user-agent: ")
+                .or(line.strip_prefix("User-Agent: "))
+        })
+    }
+
+    #[test]
+    fn requests_name_the_app_by_default() {
+        let request = capture_request(UreqFetcher::new(false));
+        assert_eq!(
+            user_agent_header(&request),
+            Some(skjalf_core::model::DEFAULT_USER_AGENT),
+            "{request}"
+        );
+    }
+
+    #[test]
+    fn requests_send_the_configured_user_agent() {
+        let request = capture_request(UreqFetcher::new(false).with_user_agent("MyPlayer/1.0"));
+        assert_eq!(
+            user_agent_header(&request),
+            Some("MyPlayer/1.0"),
+            "{request}"
+        );
+    }
 
     fn serve_once(
         headers: &str,

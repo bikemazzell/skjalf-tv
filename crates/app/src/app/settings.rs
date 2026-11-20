@@ -21,11 +21,12 @@ pub enum SettingsFocus {
     AudioLanguage,
     Subtitles,
     SubtitleLanguage,
+    UserAgent,
 }
 
 impl SettingsFocus {
     /// Top-to-bottom order on the Settings screen.
-    pub const ALL: [SettingsFocus; 8] = [
+    pub const ALL: [SettingsFocus; 9] = [
         SettingsFocus::EditSource,
         SettingsFocus::RefreshContent,
         SettingsFocus::RefreshInterval,
@@ -34,6 +35,7 @@ impl SettingsFocus {
         SettingsFocus::AudioLanguage,
         SettingsFocus::Subtitles,
         SettingsFocus::SubtitleLanguage,
+        SettingsFocus::UserAgent,
     ];
 
     fn step(self, down: bool) -> Self {
@@ -87,6 +89,7 @@ impl App {
         match button {
             SettingsFocus::EditSource => self.open_source_editor(),
             SettingsFocus::RefreshContent => self.refresh_content(),
+            SettingsFocus::UserAgent => self.start_text_edit(super::TextTarget::UserAgent),
             SettingsFocus::RefreshInterval
             | SettingsFocus::StartBuffer
             | SettingsFocus::StallBuffer
@@ -123,9 +126,33 @@ impl App {
                 self.settings.subtitle_lang =
                     cycle_language_pref(self.settings.subtitle_lang.as_deref(), forward)
             }
-            SettingsFocus::EditSource | SettingsFocus::RefreshContent => return,
+            SettingsFocus::EditSource
+            | SettingsFocus::RefreshContent
+            | SettingsFocus::UserAgent => return,
         }
         self.save_settings();
+    }
+
+    pub fn user_agent_editing(&self) -> bool {
+        self.editing == Some(super::TextTarget::UserAgent)
+    }
+
+    pub fn set_user_agent_text(&mut self, text: String) {
+        self.settings.user_agent = text;
+    }
+
+    /// Save the edited User-Agent and use it for every later request.
+    pub(super) fn apply_user_agent(&mut self) {
+        self.save_settings();
+        let user_agent = self.settings.effective_user_agent();
+        self.fetcher = std::sync::Arc::new(
+            crate::net::UreqFetcher::new(self.settings.ignore_ssl).with_user_agent(&user_agent),
+        );
+        if let Some(engine) = &mut self.engine {
+            if let Err(error) = engine.set_user_agent(&user_agent) {
+                self.notice = Some(format!("User Agent error: {error}"));
+            }
+        }
     }
 
     pub fn open_source_editor(&mut self) {

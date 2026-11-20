@@ -62,6 +62,10 @@ pub trait PlayerEngine {
     fn start_now(&mut self) -> Result<(), PlayerError> {
         Ok(())
     }
+    /// The User-Agent for stream requests from the next load on.
+    fn set_user_agent(&mut self, _user_agent: &str) -> Result<(), PlayerError> {
+        Ok(())
+    }
     /// Audio and subtitle tracks of the current file (empty when idle).
     fn tracks(&self) -> Vec<Track> {
         Vec::new()
@@ -293,9 +297,11 @@ impl MpvEngine {
     pub fn new(
         initial_volume: u8,
         ignore_ssl: bool,
+        user_agent: &str,
         disk_cache: Option<&Path>,
     ) -> Result<Self, PlayerError> {
         let mut builder = Self::base_builder(ignore_ssl)?
+            .set_property("user-agent", user_agent)?
             .set_property("vo", "libmpv")?
             .set_property("volume", initial_volume.min(100) as i64)?;
         if let Some(dir) = disk_cache.and_then(Path::to_str) {
@@ -567,6 +573,11 @@ impl PlayerEngine for MpvEngine {
                     self.stall_wait
                 }),
         })
+    }
+
+    fn set_user_agent(&mut self, user_agent: &str) -> Result<(), PlayerError> {
+        self.mpv.set_property("user-agent", user_agent)?;
+        Ok(())
     }
 
     fn tracks(&self) -> Vec<Track> {

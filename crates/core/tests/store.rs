@@ -80,6 +80,7 @@ fn settings_roundtrip() {
         audio_lang: Some("de".into()),
         subtitles_on: true,
         subtitle_lang: Some("en".into()),
+        user_agent: "VLC/3.0.20 LibVLC/3.0.20".into(),
     };
     store.save_settings(&s).unwrap();
     assert!(
