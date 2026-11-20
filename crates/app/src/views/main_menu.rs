@@ -11,6 +11,17 @@ const TILE_HEIGHT: f32 = crate::theme::MIN_HIT * 1.5;
 const BUTTON_HEIGHT: f32 = crate::theme::MIN_HIT * 2.5;
 
 pub fn show(ctx: &egui::Context, app: &mut App) {
+    if let Some(account) = &app.account {
+        let (text, warn) = skjalf_core::xtream::expiry_notice_now(account.expires);
+        let color = if warn {
+            egui::Color32::from_rgb(240, 160, 80)
+        } else {
+            egui::Color32::GRAY
+        };
+        egui::TopBottomPanel::bottom("account_footer").show(ctx, |ui| {
+            ui.label(RichText::new(text).color(color));
+        });
+    }
     if let Some(message) = &app.notice {
         egui::TopBottomPanel::bottom("main_notice").show(ctx, |ui| {
             ui.label(skjalf_core::display::visual_text(message));

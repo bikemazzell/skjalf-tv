@@ -2308,7 +2308,7 @@ impl HttpFetcher for VodFetcher {
             "" => Ok(if self.account_full.load(Ordering::Relaxed) {
                 r#"{"user_info":{"status":"Active","active_cons":"1","max_connections":"1"}}"#
             } else {
-                r#"{"user_info":{"status":"Active","active_cons":"0","max_connections":"1"}}"#
+                r#"{"user_info":{"status":"Active","active_cons":"0","max_connections":"1","exp_date":"1924992000"}}"#
             }
             .into()),
             "get_vod_categories" => Ok(VOD_CATEGORIES.into()),
@@ -7749,4 +7749,43 @@ fn without_a_link_opener_the_trailer_reports_it() {
         a.notice.as_deref(),
         Some("Trailers cannot open on this system.")
     );
+}
+
+// -- Account expiry footer ----------------------------------------------------------------
+
+fn footer_labels(a: &mut App) -> Vec<String> {
+    render_labels(a, skjalf::views::main_menu::show).0
+}
+
+#[test]
+fn the_main_footer_shows_the_account_expiry() {
+    let mut a = main_app("account_footer");
+    a.fetcher = Arc::new(VodFetcher::default());
+    assert!(
+        !footer_labels(&mut a).iter().any(|l| l.contains("expir")),
+        "no footer before the account is known"
+    );
+    a.start_account_check();
+    wait_for(&mut a, |a| a.account.is_some());
+    let expires = a.account.as_ref().unwrap().expires;
+    assert_eq!(
+        expires.map(|date| date.to_string()).as_deref(),
+        Some("2031-01-01")
+    );
+    let (text, _) = skjalf_core::xtream::expiry_notice_now(expires);
+    assert!(
+        footer_labels(&mut a).contains(&text),
+        "footer shows {text:?}"
+    );
+}
+
+#[test]
+fn a_successful_connect_checks_the_account() {
+    let mut a = app("account_after_connect");
+    a.fetcher = Arc::new(VodFetcher::default());
+    let (tx, rx) = mpsc::channel();
+    tx.send(skjalf::app::ConnectOutcome::Ready(playlist()))
+        .unwrap();
+    a.connect_rx = Some(rx);
+    wait_for(&mut a, |a| a.account.is_some());
 }

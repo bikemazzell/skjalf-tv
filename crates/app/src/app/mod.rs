@@ -190,6 +190,9 @@ pub struct App {
     pub fetcher: Arc<dyn HttpFetcher + Send + Sync>,
     /// Posters, covers, logos, and captured frames.
     pub art: crate::art::ArtLoader,
+    /// The provider account (expiry date), once a login reported it.
+    pub account: Option<xtream::Account>,
+    account_rx: Option<Receiver<Result<xtream::Account, String>>>,
     /// Opens trailers in a browser; `None` (tests) never starts a program.
     pub link_opener: Option<Arc<dyn crate::links::LinkOpener>>,
     /// Frame capture for items without art; `None` turns it off.
@@ -245,6 +248,8 @@ impl App {
             art: crate::art::ArtLoader::new(fetcher.clone(), dir.join("art-cache")),
             frame_capturer: None,
             link_opener: None,
+            account: None,
+            account_rx: None,
             frame_job: None,
             sub_position: 100,
             frames_tried: Default::default(),
@@ -550,6 +555,26 @@ impl App {
         self.finish_text_edit();
     }
 
+    /// Read the account's expiry date in the background (Xtream only).
+    pub fn start_account_check(&mut self) {
+        if self.account_rx.is_some() {
+            return;
+        }
+        let Some(source) = self.settings.source.clone() else {
+            return;
+        };
+        if !matches!(source.kind, SourceKind::Xtream { .. }) {
+            self.account = None;
+            return;
+        }
+        let fetcher = self.fetcher.clone();
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(xtream::account(fetcher.as_ref(), &source).map_err(|e| e.to_string()));
+        });
+        self.account_rx = Some(rx);
+    }
+
     /// Spawn the background connect flow (login + playlist or M3U parse).
     pub fn start_connect(&mut self, source: Source) {
         if self.connect_rx.is_some() {
@@ -638,6 +663,14 @@ impl App {
     /// Poll background jobs; call once per frame before rendering.
     pub fn poll_non_keyboard_jobs(&mut self, now_ms: u64) {
         self.tick_frame_capture();
+        if let Some(rx) = self.account_rx.take() {
+            match rx.try_recv() {
+                Ok(Ok(account)) => self.account = Some(account),
+                // The footer stays as it was; the next start or connect retries.
+                Ok(Err(_)) | Err(mpsc::TryRecvError::Disconnected) => {}
+                Err(mpsc::TryRecvError::Empty) => self.account_rx = Some(rx),
+            }
+        }
         if let Some(rx) = self.connect_rx.take() {
             match rx.try_recv() {
                 Ok(outcome) => match outcome {
@@ -654,6 +687,7 @@ impl App {
                         let same_source = self.source_id() == Some(pl.source.id.as_str());
                         self.settings.source = Some(pl.source.clone());
                         self.set_playlist(pl);
+                        self.start_account_check();
                         self.editing_source = false;
                         if keep_player {
                             if let Some(id) = self.player.channel_id.clone() {

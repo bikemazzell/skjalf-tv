@@ -218,6 +218,11 @@ pub fn expiry_notice(expires: Option<NaiveDate>, today: NaiveDate) -> (String, b
     }
 }
 
+/// [`expiry_notice`] for today's local date.
+pub fn expiry_notice_now(expires: Option<NaiveDate>) -> (String, bool) {
+    expiry_notice(expires, chrono::Local::now().date_naive())
+}
+
 fn activation(info: &UserInfo) -> Activation {
     let expired = || exp_date(info).unwrap_or_else(|| NaiveDate::from_ymd_opt(1970, 1, 1).unwrap());
     match info.status.as_str() {

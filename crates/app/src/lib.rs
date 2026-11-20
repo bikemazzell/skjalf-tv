@@ -90,6 +90,7 @@ pub fn run() -> eframe::Result {
             app.game_mode = game_mode;
             app.link_opener = Some(std::sync::Arc::new(links::SystemLinkOpener { game_mode }));
             app.auto_refresh = true;
+            app.start_account_check();
             app.gamepad = gamepad::GamepadThread::spawn();
 
             // Attach the mpv render context while the GL context is current.

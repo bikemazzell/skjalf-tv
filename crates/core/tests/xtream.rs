@@ -277,7 +277,7 @@ fn the_expiry_notice_counts_days_and_warns_near_the_end() {
         notice(day(143)),
         ("Account expires 2027-04-12 (143 days)".to_owned(), false)
     );
-    assert_eq!(notice(day(8)).1, false);
+    assert!(!notice(day(8)).1, "8 days left needs no warning");
     assert_eq!(
         notice(day(7)),
         ("Account expires 2026-11-27 (7 days)".to_owned(), true)

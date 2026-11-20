@@ -31,9 +31,10 @@ To update, run the same command again. To uninstall, use `uninstall.sh` in place
 ## Features
 
 - Live TV with groups, search, favorites, and channel numbers.
-- Movies and series with posters, details, and resume. It stays fast with more than 180,000 titles.
+- Movies and series with posters, details, trailers, and resume. It stays fast with more than 180,000 titles.
 - Audio and subtitle languages set once in Settings, and a panel to switch tracks while you watch.
 - Buffering settings for slow connections.
+- Your Xtream account's expiry date on the main screen.
 
 ## Good to know
 
@@ -59,7 +60,7 @@ To update, run the same command again. To uninstall, use `uninstall.sh` in place
 
 Skjalf TV keeps your settings, favorites, watch progress, and cached catalogs in `~/.config/skjalf` (or `$XDG_CONFIG_HOME/skjalf`). These files contain your provider address and credentials. The app creates them readable only by your user. Treat the whole directory as private.
 
-The app sends data only to your provider and to the image servers that your provider lists for posters and logos. These can be other servers, for example an image service. An image request tells that server your IP address and the app's User-Agent, but not your provider credentials. The app does not write your credentials to logs or error messages.
+The app sends data only to your provider and to the image servers that your provider lists for posters and logos. These can be other servers, for example an image service. An image request tells that server your IP address and the app's User-Agent, but not your provider credentials. The Trailer button opens YouTube in Steam's browser (Game Mode) or in your default browser (desktop). The app does not write your credentials to logs or error messages.
 
 ## Build
 
