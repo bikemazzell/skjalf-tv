@@ -113,6 +113,8 @@ impl App {
         if self.editing.is_some() {
             self.finish_text_edit();
         }
+        // A capture holds a provider connection; close it before playback.
+        self.cancel_frame_capture();
         let url = self.render_template(&item.url);
         if !self.load_media(&url, item.start, self.settings.start_buffer_secs, now_ms) {
             return;

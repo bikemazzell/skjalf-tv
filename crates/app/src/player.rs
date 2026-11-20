@@ -1,7 +1,9 @@
 //! Player engine: `PlayerEngine` trait + libmpv implementation (rsmpv).
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use rsmpv::render::OwnedRenderContext;
 use rsmpv::{Mpv, Node};
@@ -638,6 +640,91 @@ impl PlayerEngine for MpvEngine {
         }
         self.set_async("cache-pause-wait", START_NOW_WAIT)
     }
+}
+
+/// Captures one frame of a stream, for items without art.
+pub trait FrameCapturer: Send + Sync {
+    /// One JPEG frame from inside `url`. Returns early when `cancel` is set.
+    fn capture(&self, url: &str, user_agent: &str, cancel: &AtomicBool) -> Result<Vec<u8>, String>;
+}
+
+/// A separate headless mpv that writes one frame with `vo=image`, 10% into
+/// the file, then stops. It opens its own connection to the provider.
+pub struct MpvFrameCapturer {
+    ignore_ssl: bool,
+    dir: PathBuf,
+}
+
+/// Longest wait for the frame before the capture gives up.
+const CAPTURE_TIMEOUT: Duration = Duration::from_secs(45);
+
+impl MpvFrameCapturer {
+    pub fn new(ignore_ssl: bool, dir: PathBuf) -> Self {
+        Self { ignore_ssl, dir }
+    }
+}
+
+impl FrameCapturer for MpvFrameCapturer {
+    fn capture(&self, url: &str, user_agent: &str, cancel: &AtomicBool) -> Result<Vec<u8>, String> {
+        static SEQ: AtomicU64 = AtomicU64::new(0);
+        let out = self.dir.join(format!(
+            "capture-{}-{}",
+            std::process::id(),
+            SEQ.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&out).map_err(|e| e.to_string())?;
+        let result = capture_into(&out, url, user_agent, self.ignore_ssl, cancel);
+        let _ = std::fs::remove_dir_all(&out);
+        if self.dir.read_dir().is_ok_and(|mut d| d.next().is_none()) {
+            let _ = std::fs::remove_dir(&self.dir);
+        }
+        result
+    }
+}
+
+fn capture_into(
+    out: &Path,
+    url: &str,
+    user_agent: &str,
+    ignore_ssl: bool,
+    cancel: &AtomicBool,
+) -> Result<Vec<u8>, String> {
+    let error = |e: rsmpv::Error| e.to_string();
+    let mpv = Mpv::builder()
+        .and_then(|b| b.set_property("vo", "image"))
+        .and_then(|b| b.set_property("vo-image-format", "jpg"))
+        .and_then(|b| b.set_property("vo-image-outdir", out.to_string_lossy().as_ref()))
+        .and_then(|b| b.set_property("ao", "null"))
+        .and_then(|b| b.set_property("aid", "no"))
+        .and_then(|b| b.set_property("sid", "no"))
+        .and_then(|b| b.set_property("frames", 1_i64))
+        .and_then(|b| b.set_property("start", "10%"))
+        .and_then(|b| b.set_property("user-agent", user_agent))
+        .and_then(|b| b.set_property("tls-verify", !ignore_ssl))
+        .and_then(|b| b.build())
+        .map_err(error)?;
+    mpv.command(&["loadfile", url]).map_err(error)?;
+    let deadline = std::time::Instant::now() + CAPTURE_TIMEOUT;
+    loop {
+        if cancel.load(Ordering::SeqCst) {
+            return Err("Capture cancelled.".into());
+        }
+        if std::time::Instant::now() > deadline {
+            return Err("Capture timed out.".into());
+        }
+        match mpv.poll_event() {
+            Some(rsmpv::Event::EndFile { .. }) => break,
+            Some(_) => continue,
+            None => std::thread::sleep(Duration::from_millis(20)),
+        }
+    }
+    let frame = std::fs::read_dir(out)
+        .map_err(|e| e.to_string())?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .find(|path| path.extension().is_some_and(|ext| ext == "jpg"))
+        .ok_or_else(|| "No frame was written.".to_owned())?;
+    std::fs::read(frame).map_err(|e| e.to_string())
 }
 
 /// Audio/subtitle entries of mpv's `track-list` (video and malformed

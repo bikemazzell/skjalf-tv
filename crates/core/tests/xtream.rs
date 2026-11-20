@@ -229,3 +229,26 @@ fn playlist_rejects_m3u_source() {
     };
     assert!(xtream::playlist(&f, &source).is_err());
 }
+
+#[test]
+fn free_connection_compares_active_with_the_limit() {
+    let login = "http://xc.tv:8080/player_api.php?username=u1&password=p1";
+    let check = |body: &str| xtream::free_connection(&MockFetch::new(&[(login, body)]), &src());
+    let body = |active: &str, max: &str| {
+        format!(
+            r#"{{"user_info":{{"status":"Active","active_cons":{active},"max_connections":{max}}}}}"#
+        )
+    };
+    assert!(check(&body("\"0\"", "\"1\"")).unwrap());
+    assert!(
+        !check(&body("1", "1")).unwrap(),
+        "the only connection is in use"
+    );
+    assert!(check(&body("1", "2")).unwrap());
+    assert!(
+        check(&body("\"\"", "\"\"")).unwrap(),
+        "unknown limits allow it"
+    );
+    assert!(check(r#"{"user_info":{"status":"Active"}}"#).unwrap());
+    assert!(xtream::free_connection(&MockFetch::new(&[]), &src()).is_err());
+}

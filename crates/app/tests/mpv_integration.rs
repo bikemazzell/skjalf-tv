@@ -646,3 +646,46 @@ fn the_user_agent_reaches_mpv() {
     e.set_user_agent("MyPlayer/1.0").unwrap();
     assert_eq!(property::<String>(&e, "user-agent"), "MyPlayer/1.0");
 }
+
+#[test]
+#[ignore]
+fn a_frame_capture_returns_one_jpeg_from_inside_the_file() {
+    use skjalf::player::{FrameCapturer, MpvFrameCapturer};
+    use std::sync::atomic::AtomicBool;
+    let dir = std::env::temp_dir().join(format!("skjalf-frames-{}", std::process::id()));
+    let capturer = MpvFrameCapturer::new(false, dir.clone());
+    let bytes = capturer
+        .capture(
+            long_clip().to_str().unwrap(),
+            "SkjalfTV/test",
+            &AtomicBool::new(false),
+        )
+        .expect("one frame");
+    assert_eq!(&bytes[..2], &[0xff, 0xd8], "a JPEG");
+    let image = skjalf::art::decode_thumbnail(&bytes).unwrap();
+    assert_eq!(image.size, [64, 48]);
+    let left: Vec<_> = std::fs::read_dir(&dir)
+        .map(|d| d.collect())
+        .unwrap_or_default();
+    assert!(left.is_empty(), "no temporary files stay behind");
+
+    let started = Instant::now();
+    assert!(capturer
+        .capture(
+            long_clip().to_str().unwrap(),
+            "SkjalfTV/test",
+            &AtomicBool::new(true)
+        )
+        .is_err());
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "a cancel stops at once"
+    );
+    assert!(capturer
+        .capture(
+            "/nonexistent/skjalf.mkv",
+            "SkjalfTV/test",
+            &AtomicBool::new(false)
+        )
+        .is_err());
+}

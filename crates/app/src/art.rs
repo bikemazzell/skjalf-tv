@@ -57,6 +57,7 @@ pub struct ArtLoader {
     queue: Arc<Queue>,
     fetcher: Arc<RwLock<Fetcher>>,
     results: Receiver<(String, Result<egui::ColorImage, String>)>,
+    cache: Arc<ArtCache>,
     tick: u64,
 }
 
@@ -76,6 +77,7 @@ impl ArtLoader {
             queue,
             fetcher,
             results,
+            cache,
             tick: 0,
         }
     }
@@ -114,6 +116,17 @@ impl ArtLoader {
             Some(Entry::Ready { .. }) => ArtState::Ready,
             Some(Entry::Failed) => ArtState::Failed,
         }
+    }
+
+    pub fn is_cached(&self, key: &str) -> bool {
+        self.cache.contains(key)
+    }
+
+    /// Store bytes under `key` (a captured frame); the next request shows them.
+    pub fn insert(&mut self, key: &str, bytes: &[u8]) {
+        // A failed write only means the frame is captured again next session.
+        let _ = self.cache.put(key, bytes, SystemTime::now());
+        self.forget(key);
     }
 
     /// Forget `key` so the next request loads it again (a new frame capture).

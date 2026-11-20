@@ -24,6 +24,10 @@ impl ArtCache {
         self.dir.join(format!("{}.img", fnv_hex(url)))
     }
 
+    pub fn contains(&self, url: &str) -> bool {
+        self.path(url).is_file()
+    }
+
     /// Cached bytes for `url`; a hit counts as a use at `now`.
     pub fn get(&self, url: &str, now: SystemTime) -> Option<Vec<u8>> {
         let path = self.path(url);

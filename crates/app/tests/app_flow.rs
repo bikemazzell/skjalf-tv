@@ -2226,6 +2226,8 @@ fn series_info_body(id: &str) -> String {
 
 #[derive(Default)]
 struct VodFetcher {
+    /// The account's only connection is in use (login reports 1 of 1).
+    account_full: AtomicBool,
     long_persian: AtomicBool,
     repeat_series_name: AtomicBool,
     persian_info: AtomicBool,
@@ -2297,6 +2299,12 @@ impl HttpFetcher for VodFetcher {
                     body
                 })
             }
+            "" => Ok(if self.account_full.load(Ordering::Relaxed) {
+                r#"{"user_info":{"status":"Active","active_cons":"1","max_connections":"1"}}"#
+            } else {
+                r#"{"user_info":{"status":"Active","active_cons":"0","max_connections":"1"}}"#
+            }
+            .into()),
             "get_vod_categories" => Ok(VOD_CATEGORIES.into()),
             "get_vod_streams" if self.fail_catalog.load(Ordering::Relaxed) => {
                 Err(FetchError("Network connection failed.".into()))
@@ -7344,4 +7352,124 @@ fn settings_edit_the_user_agent_and_apply_it_at_once() {
     a.pump_event(&enter_key(), 0);
     assert_eq!(engine.user_agents.lock().unwrap().last().unwrap(), default);
     assert_eq!(saved_settings(&a).user_agent, "");
+}
+
+// -- Captured frames for items without art ------------------------------------------
+
+/// Records capture requests. `hold` keeps a capture running until cancelled.
+#[derive(Default)]
+struct FakeCapturer {
+    urls: Mutex<Vec<String>>,
+    hold: AtomicBool,
+    cancelled: AtomicBool,
+}
+
+impl skjalf::player::FrameCapturer for FakeCapturer {
+    fn capture(
+        &self,
+        url: &str,
+        _user_agent: &str,
+        cancel: &AtomicBool,
+    ) -> Result<Vec<u8>, String> {
+        self.urls.lock().unwrap().push(url.to_owned());
+        while self.hold.load(Ordering::SeqCst) {
+            if cancel.load(Ordering::SeqCst) {
+                self.cancelled.store(true, Ordering::SeqCst);
+                return Err("cancelled".into());
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        Ok(vec![0xff, 0xd8, 0xff])
+    }
+}
+
+fn movie_details_with_capturer(
+    tag: &str,
+) -> (App, Arc<VodFetcher>, Arc<MockEngine>, Arc<FakeCapturer>) {
+    let (mut a, fetcher, engine) = movies_app(tag);
+    let capturer = Arc::new(FakeCapturer::default());
+    a.frame_capturer = Some(capturer.clone());
+    (a, fetcher, engine, capturer)
+}
+
+fn open_movie_a(a: &mut App) {
+    open_movies(a);
+    all_movies(a);
+    a.handle_action(Action::Select, 0); // Movie A details
+    wait_for(a, |a| {
+        a.movie_details
+            .as_ref()
+            .is_some_and(|d| !matches!(d.info, DetailInfo::Loading))
+    });
+}
+
+#[test]
+fn a_movie_without_art_gets_a_captured_frame_once() {
+    let (mut a, fetcher, _, capturer) = movie_details_with_capturer("frame_capture");
+    open_movie_a(&mut a);
+    wait_for(&mut a, |a| a.art_is_cached("frame://movie/1001"));
+    let urls = capturer.urls.lock().unwrap().clone();
+    assert_eq!(
+        urls,
+        ["http://tv.example.com/movie/u/p/1001.mkv"],
+        "credentials filled in"
+    );
+    assert!(
+        fetcher.actions().contains(&String::new()),
+        "the account was checked first"
+    );
+
+    // Back and in again: the cached frame is reused.
+    a.handle_action(Action::Back, 0);
+    a.handle_action(Action::Select, 0);
+    for _ in 0..20 {
+        a.poll_jobs(0);
+    }
+    assert_eq!(capturer.urls.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn no_capture_without_a_free_connection_or_without_a_capturer() {
+    let (mut a, fetcher, _, capturer) = movie_details_with_capturer("frame_full");
+    fetcher.account_full.store(true, Ordering::Relaxed);
+    open_movie_a(&mut a);
+    wait_for(&mut a, |a| a.frame_capture_idle());
+    assert!(capturer.urls.lock().unwrap().is_empty());
+    assert!(!a.art_is_cached("frame://movie/1001"));
+
+    let (mut a, fetcher, _) = movies_app("frame_off");
+    open_movie_a(&mut a); // no capturer installed
+    for _ in 0..20 {
+        a.poll_jobs(0);
+    }
+    assert!(
+        !fetcher.actions().contains(&String::new()),
+        "no account call at all"
+    );
+}
+
+#[test]
+fn play_and_back_cancel_a_running_capture() {
+    let (mut a, _, engine, capturer) = movie_details_with_capturer("frame_cancel");
+    capturer.hold.store(true, Ordering::SeqCst);
+    open_movie_a(&mut a);
+    wait_for(&mut a, |_| !capturer.urls.lock().unwrap().is_empty());
+    a.handle_action(Action::Select, 0); // Play
+    assert!(
+        capturer.cancelled.load(Ordering::SeqCst),
+        "cancelled before the load"
+    );
+    assert_eq!(engine.loads.lock().unwrap().len(), 1);
+    assert!(a.frame_capture_idle());
+
+    let (mut a, _, _, capturer) = movie_details_with_capturer("frame_back");
+    capturer.hold.store(true, Ordering::SeqCst);
+    open_movie_a(&mut a);
+    wait_for(&mut a, |_| !capturer.urls.lock().unwrap().is_empty());
+    a.handle_action(Action::Back, 0);
+    wait_for(&mut a, |a| a.frame_capture_idle());
+    assert!(
+        capturer.cancelled.load(Ordering::SeqCst),
+        "leaving the screen cancels it"
+    );
 }

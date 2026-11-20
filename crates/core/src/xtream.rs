@@ -142,6 +142,30 @@ struct UserInfo {
     status: String,
     #[serde(default)]
     exp_date: Option<serde_json::Value>,
+    #[serde(default)]
+    active_cons: Option<serde_json::Value>,
+    #[serde(default)]
+    max_connections: Option<serde_json::Value>,
+}
+
+fn count(value: &Option<serde_json::Value>) -> Option<u64> {
+    match value {
+        Some(serde_json::Value::Number(n)) => n.as_u64(),
+        Some(serde_json::Value::String(s)) => s.trim().parse().ok(),
+        _ => None,
+    }
+}
+
+/// True when the account has a connection to spare. Unknown limits allow it.
+pub fn free_connection(f: &dyn HttpFetcher, source: &Source) -> Result<bool, XtreamError> {
+    let body = f.get(&api_url(source, None, &[])?)?;
+    let resp: LoginResponse =
+        serde_json::from_str(&body).map_err(|e| XtreamError::BadResponse(format!("login: {e}")))?;
+    let info = &resp.user_info;
+    Ok(match count(&info.max_connections) {
+        Some(max) if max > 0 => count(&info.active_cons).unwrap_or(0) < max,
+        _ => true,
+    })
 }
 
 fn exp_date(info: &UserInfo) -> Option<NaiveDate> {

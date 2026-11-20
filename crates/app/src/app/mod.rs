@@ -27,6 +27,7 @@ use skjalf_core::browse::BrowserFocus;
 
 mod browser;
 mod catalog_jobs;
+mod frames;
 mod main_menu;
 mod movies;
 mod playback;
@@ -187,6 +188,11 @@ pub struct App {
     pub fetcher: Arc<dyn HttpFetcher + Send + Sync>,
     /// Posters, covers, logos, and captured frames.
     pub art: crate::art::ArtLoader,
+    /// Frame capture for items without art; `None` turns it off.
+    pub frame_capturer: Option<Arc<dyn crate::player::FrameCapturer>>,
+    frame_job: Option<frames::FrameJob>,
+    /// Frame keys tried this session, so a failure is not retried.
+    frames_tried: std::collections::HashSet<String>,
     /// Background playlist fetch (setup connect).
     pub connect_rx: Option<Receiver<ConnectOutcome>>,
     /// Background EPG fetch; carries the channel id it was issued for.
@@ -231,6 +237,9 @@ impl App {
             // Next to the store until `run` moves it to the cache directory,
             // so headless tests never touch the user's cache.
             art: crate::art::ArtLoader::new(fetcher.clone(), dir.join("art-cache")),
+            frame_capturer: None,
+            frame_job: None,
+            frames_tried: Default::default(),
             fetcher,
             settings,
             favorites,
@@ -619,6 +628,7 @@ impl App {
 
     /// Poll background jobs; call once per frame before rendering.
     pub fn poll_non_keyboard_jobs(&mut self, now_ms: u64) {
+        self.tick_frame_capture();
         if let Some(rx) = self.connect_rx.take() {
             match rx.try_recv() {
                 Ok(outcome) => match outcome {

@@ -81,6 +81,10 @@ pub fn run() -> eframe::Result {
             let mut app = App::with_store(&config_dir());
             if let Some(cache) = player_cache_dir() {
                 app.art = art::ArtLoader::new(app.fetcher.clone(), cache.join("art"));
+                app.frame_capturer = Some(std::sync::Arc::new(player::MpvFrameCapturer::new(
+                    app.settings.ignore_ssl,
+                    cache.join("frames"),
+                )));
             }
             app.game_mode = game_mode;
             app.auto_refresh = true;
