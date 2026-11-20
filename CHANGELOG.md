@@ -1,8 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.2.1 - 2026-11-20
 
-- A Trailer button on the movie details screen. In Game Mode the trailer opens in Steam's browser over the app; on the desktop it opens in the default browser.
+- A Trailer button on the movie details screen. In Game Mode the trailer opens in Steam's browser over the app. On the desktop it opens in the default browser.
 - The Main screen footer shows when your Xtream account expires and how many days remain. It is highlighted at 7 days or less.
 - Fixed: the transport bar, the audio and subtitle panel, and the program list no longer hide subtitles. Subtitles move above them while they show.
 
