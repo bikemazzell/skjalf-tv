@@ -398,3 +398,28 @@ fn series_info_reads_season_covers_and_episode_images() {
     );
     assert_eq!(info.seasons[1].episodes[0].image, None);
 }
+
+#[test]
+fn movie_info_reads_the_trailer_as_a_checked_youtube_id() {
+    let trailer = |value: &str| {
+        let body = format!(r#"{{"info":{{"youtube_trailer":{value}}}}}"#);
+        let f = Routes::new(vec![("get_vod_info", &body)]);
+        xtream::movie_info(&f, &source(), "7").unwrap().trailer
+    };
+    assert_eq!(trailer(r#""dQw4w9WgXcQ""#).as_deref(), Some("dQw4w9WgXcQ"));
+    assert_eq!(
+        trailer(r#""https://www.youtube.com/watch?v=abc_DEF-123&t=5""#).as_deref(),
+        Some("abc_DEF-123")
+    );
+    assert_eq!(
+        trailer(r#""https://youtu.be/abcDEF12345""#).as_deref(),
+        Some("abcDEF12345")
+    );
+    assert_eq!(trailer(r#""javascript:alert(1)""#), None);
+    assert_eq!(trailer(r#""a b""#), None);
+    assert_eq!(trailer(r#""""#), None);
+    assert_eq!(
+        skjalf_core::catalog::trailer_url("dQw4w9WgXcQ"),
+        "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+    );
+}

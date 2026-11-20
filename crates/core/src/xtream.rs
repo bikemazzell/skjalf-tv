@@ -178,21 +178,56 @@ fn exp_date(info: &UserInfo) -> Option<NaiveDate> {
     chrono::DateTime::from_timestamp(secs, 0).map(|t| t.naive_utc().date())
 }
 
+/// What the login reports about the account.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Account {
+    pub activation: Activation,
+    /// The day the account expires; `None` when the provider sends none.
+    pub expires: Option<NaiveDate>,
+}
+
 /// Check credentials → [`Activation`].
 pub fn login(f: &dyn HttpFetcher, source: &Source) -> Result<Activation, XtreamError> {
+    account(f, source).map(|account| account.activation)
+}
+
+/// Check credentials and read the expiry date.
+pub fn account(f: &dyn HttpFetcher, source: &Source) -> Result<Account, XtreamError> {
     let body = f.get(&api_url(source, None, &[])?)?;
     let resp: LoginResponse =
         serde_json::from_str(&body).map_err(|e| XtreamError::BadResponse(format!("login: {e}")))?;
     let info = &resp.user_info;
+    Ok(Account {
+        activation: activation(info),
+        expires: exp_date(info),
+    })
+}
+
+/// Footer text for the account's expiry, and whether it needs attention
+/// (7 days or less, or already expired).
+pub fn expiry_notice(expires: Option<NaiveDate>, today: NaiveDate) -> (String, bool) {
+    let Some(date) = expires else {
+        return ("No expiry date".into(), false);
+    };
+    let days = (date - today).num_days();
+    match days {
+        ..0 => (format!("Account expired on {date}"), true),
+        0 => ("Account expires today".into(), true),
+        1 => (format!("Account expires {date} (1 day)"), true),
+        _ => (format!("Account expires {date} ({days} days)"), days <= 7),
+    }
+}
+
+fn activation(info: &UserInfo) -> Activation {
     let expired = || exp_date(info).unwrap_or_else(|| NaiveDate::from_ymd_opt(1970, 1, 1).unwrap());
     match info.status.as_str() {
         "Active" => match exp_date(info) {
-            Some(date) if date < Utc::now().date_naive() => Ok(Activation::Expired { date }),
-            _ => Ok(Activation::Active),
+            Some(date) if date < Utc::now().date_naive() => Activation::Expired { date },
+            _ => Activation::Active,
         },
-        "Expired" => Ok(Activation::Expired { date: expired() }),
-        "Banned" => Ok(Activation::Banned),
-        _ => Ok(Activation::Invalid),
+        "Expired" => Activation::Expired { date: expired() },
+        "Banned" => Activation::Banned,
+        _ => Activation::Invalid,
     }
 }
 
@@ -564,6 +599,8 @@ struct RawMovieMeta {
     movie_image: Option<Flex>,
     #[serde(default)]
     cover_big: Option<Flex>,
+    #[serde(default)]
+    youtube_trailer: Option<Flex>,
 }
 
 #[derive(Deserialize, Default)]
@@ -599,7 +636,44 @@ pub fn movie_info(
             .filter(|secs| *secs > 0),
         rating: text(meta.rating),
         poster: image_url(meta.movie_image).or_else(|| image_url(meta.cover_big)),
+        trailer: text(meta.youtube_trailer).and_then(|raw| youtube_id(&raw)),
     })
+}
+
+/// A YouTube video id from a bare id or a youtube.com or youtu.be link. The
+/// id goes into a URL, so it must be the id characters only.
+fn youtube_id(raw: &str) -> Option<String> {
+    let raw = raw.trim();
+    let lower = raw.to_ascii_lowercase();
+    let after = |marker: &str| {
+        lower
+            .find(marker)
+            .map(|at| &raw[at + marker.len()..])
+            .map(|rest| rest.split(['&', '?', '#', '/']).next().unwrap_or(""))
+    };
+    let id = if ["https://youtu.be/", "http://youtu.be/"]
+        .iter()
+        .any(|prefix| lower.starts_with(prefix))
+    {
+        after("youtu.be/")?
+    } else if [
+        "https://www.youtube.com/watch?",
+        "https://youtube.com/watch?",
+        "http://www.youtube.com/watch?",
+        "http://youtube.com/watch?",
+    ]
+    .iter()
+    .any(|prefix| lower.starts_with(prefix))
+    {
+        after("v=")?
+    } else {
+        raw
+    };
+    let valid = (6..=20).contains(&id.len())
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+    valid.then(|| id.to_owned())
 }
 
 /// An art URL the app may download: `http` or `https` only.

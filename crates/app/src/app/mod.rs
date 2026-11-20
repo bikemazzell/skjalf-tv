@@ -190,6 +190,8 @@ pub struct App {
     pub fetcher: Arc<dyn HttpFetcher + Send + Sync>,
     /// Posters, covers, logos, and captured frames.
     pub art: crate::art::ArtLoader,
+    /// Opens trailers in a browser; `None` (tests) never starts a program.
+    pub link_opener: Option<Arc<dyn crate::links::LinkOpener>>,
     /// Frame capture for items without art; `None` turns it off.
     pub frame_capturer: Option<Arc<dyn crate::player::FrameCapturer>>,
     frame_job: Option<frames::FrameJob>,
@@ -242,6 +244,7 @@ impl App {
             // so headless tests never touch the user's cache.
             art: crate::art::ArtLoader::new(fetcher.clone(), dir.join("art-cache")),
             frame_capturer: None,
+            link_opener: None,
             frame_job: None,
             sub_position: 100,
             frames_tried: Default::default(),

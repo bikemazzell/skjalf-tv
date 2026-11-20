@@ -7,6 +7,7 @@ pub mod fonts;
 pub mod gamepad;
 pub mod glloader;
 pub mod input;
+pub mod links;
 pub mod net;
 pub mod player;
 pub mod setup_model;
@@ -87,6 +88,7 @@ pub fn run() -> eframe::Result {
                 )));
             }
             app.game_mode = game_mode;
+            app.link_opener = Some(std::sync::Arc::new(links::SystemLinkOpener { game_mode }));
             app.auto_refresh = true;
             app.gamepad = gamepad::GamepadThread::spawn();
 

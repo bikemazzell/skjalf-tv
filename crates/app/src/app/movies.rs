@@ -1,6 +1,8 @@
 //! Movie details: catalog data now, provider metadata when it arrives.
 
-use skjalf_core::catalog::{format_duration, ContentKey, ContentKind, Movie, MovieInfo};
+use skjalf_core::catalog::{
+    format_duration, trailer_url, ContentKey, ContentKind, Movie, MovieInfo,
+};
 use skjalf_core::display::visual_text;
 use skjalf_core::nav::View;
 use skjalf_core::progress::ProgressKind;
@@ -25,6 +27,8 @@ pub enum MovieButton {
     /// Play, or play from the start when a resume position exists.
     #[default]
     Play,
+    /// Open the YouTube trailer; only when the details have one.
+    Trailer,
     Favorite,
 }
 
@@ -97,16 +101,38 @@ impl App {
         self.resume_position(ProgressKind::Movie, &details.movie.id)
     }
 
-    /// Buttons in focus order; Resume appears only with a saved position.
+    /// Buttons in focus order; Resume appears only with a saved position,
+    /// Trailer only when the details name one.
     pub fn movie_buttons(&self) -> Vec<MovieButton> {
+        let mut buttons = Vec::with_capacity(4);
         if self.movie_resume().is_some() {
-            vec![
-                MovieButton::Resume,
-                MovieButton::Play,
-                MovieButton::Favorite,
-            ]
-        } else {
-            vec![MovieButton::Play, MovieButton::Favorite]
+            buttons.push(MovieButton::Resume);
+        }
+        buttons.push(MovieButton::Play);
+        if self.movie_trailer().is_some() {
+            buttons.push(MovieButton::Trailer);
+        }
+        buttons.push(MovieButton::Favorite);
+        buttons
+    }
+
+    fn movie_trailer(&self) -> Option<&str> {
+        match &self.movie_details.as_ref()?.info {
+            DetailInfo::Ready(info) => info.trailer.as_deref(),
+            _ => None,
+        }
+    }
+
+    fn open_movie_trailer(&mut self) {
+        let Some(url) = self.movie_trailer().map(trailer_url) else {
+            return;
+        };
+        let Some(opener) = &self.link_opener else {
+            self.notice = Some("Trailers cannot open on this system.".into());
+            return;
+        };
+        if let Err(error) = opener.open(&url) {
+            self.notice = Some(format!("Could not open the trailer: {error}"));
         }
     }
 
@@ -117,6 +143,7 @@ impl App {
             }
             (MovieButton::Resume, None) | (MovieButton::Play, None) => "Play".into(),
             (MovieButton::Play, Some(_)) => "Play from Start".into(),
+            (MovieButton::Trailer, _) => "Trailer".into(),
             (MovieButton::Favorite, _) => {
                 if self.movie_is_favorite() {
                     "Remove Favorite".into()
@@ -171,6 +198,7 @@ impl App {
         match button {
             MovieButton::Resume => self.play_movie(true, now_ms),
             MovieButton::Play => self.play_movie(false, now_ms),
+            MovieButton::Trailer => self.open_movie_trailer(),
             MovieButton::Favorite => self.toggle_movie_favorite(now_ms),
         }
     }

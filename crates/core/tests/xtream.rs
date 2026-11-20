@@ -252,3 +252,44 @@ fn free_connection_compares_active_with_the_limit() {
     assert!(check(r#"{"user_info":{"status":"Active"}}"#).unwrap());
     assert!(xtream::free_connection(&MockFetch::new(&[]), &src()).is_err());
 }
+
+#[test]
+fn account_reports_the_activation_and_the_expiry_date() {
+    let login = "http://xc.tv:8080/player_api.php?username=u1&password=p1";
+    let f = MockFetch::new(&[(login, &user_info("Active", "4102444800"))]);
+    let account = xtream::account(&f, &src()).unwrap();
+    assert_eq!(account.activation, Activation::Active);
+    assert_eq!(account.expires, NaiveDate::from_ymd_opt(2100, 1, 1));
+
+    let f = MockFetch::new(&[(
+        login,
+        r#"{"user_info":{"status":"Active","exp_date":null}}"#,
+    )]);
+    assert_eq!(xtream::account(&f, &src()).unwrap().expires, None);
+}
+
+#[test]
+fn the_expiry_notice_counts_days_and_warns_near_the_end() {
+    let today = NaiveDate::from_ymd_opt(2026, 11, 20).unwrap();
+    let day = |offset: i64| Some(today + chrono::Duration::days(offset));
+    let notice = |expires| xtream::expiry_notice(expires, today);
+    assert_eq!(
+        notice(day(143)),
+        ("Account expires 2027-04-12 (143 days)".to_owned(), false)
+    );
+    assert_eq!(notice(day(8)).1, false);
+    assert_eq!(
+        notice(day(7)),
+        ("Account expires 2026-11-27 (7 days)".to_owned(), true)
+    );
+    assert_eq!(
+        notice(day(1)),
+        ("Account expires 2026-11-21 (1 day)".to_owned(), true)
+    );
+    assert_eq!(notice(day(0)), ("Account expires today".to_owned(), true));
+    assert_eq!(
+        notice(day(-3)),
+        ("Account expired on 2026-11-17".to_owned(), true)
+    );
+    assert_eq!(notice(None), ("No expiry date".to_owned(), false));
+}

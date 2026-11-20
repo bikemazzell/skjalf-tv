@@ -137,6 +137,13 @@ pub struct MovieInfo {
     pub rating: Option<String>,
     /// Poster image URL from the details (`http` or `https` only).
     pub poster: Option<String>,
+    /// YouTube video id of the trailer (checked characters only).
+    pub trailer: Option<String>,
+}
+
+/// The YouTube page that plays a trailer.
+pub fn trailer_url(id: &str) -> String {
+    format!("https://www.youtube.com/watch?v={id}")
 }
 
 /// A provider rating with one decimal ("7.296" is "7.3", "7" is "7.0").

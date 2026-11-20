@@ -2339,8 +2339,10 @@ impl HttpFetcher for VodFetcher {
                 } else {
                     description.clone()
                 };
+                // Only Movie C has a trailer.
+                let trailer = if id == "1003" { "dQw4w9WgXcQ" } else { "" };
                 Ok(format!(
-                    r#"{{"info":{{"description":"{description}","cast":"{cast}","genre":"Genre {id}","duration_secs":"5400","rating":"7.5"}}}}"#
+                    r#"{{"info":{{"description":"{description}","cast":"{cast}","genre":"Genre {id}","duration_secs":"5400","rating":"7.5","youtube_trailer":"{trailer}"}}}}"#
                 ))
             }
             _ => Err(FetchError("mock: offline".into())),
@@ -7676,5 +7678,75 @@ fn subtitles_move_above_the_overlays_and_back() {
         engine.sub_positions.lock().unwrap().len(),
         sent,
         "an unchanged position is not sent again"
+    );
+}
+
+// -- Trailers --------------------------------------------------------------------------
+
+#[derive(Default)]
+struct FakeLinks {
+    opened: Mutex<Vec<String>>,
+}
+
+impl skjalf::links::LinkOpener for FakeLinks {
+    fn open(&self, url: &str) -> Result<(), String> {
+        self.opened.lock().unwrap().push(url.to_owned());
+        Ok(())
+    }
+}
+
+fn open_movie_details(a: &mut App, downs: usize) {
+    open_movies(a);
+    all_movies(a);
+    for _ in 0..downs {
+        a.handle_action(Action::Down, 0);
+    }
+    a.handle_action(Action::Select, 0);
+    wait_for(a, |a| {
+        a.movie_details
+            .as_ref()
+            .is_some_and(|d| !matches!(d.info, DetailInfo::Loading))
+    });
+}
+
+#[test]
+fn the_trailer_button_opens_the_youtube_page() {
+    let (mut a, _, engine) = movies_app("trailer_open");
+    let links = Arc::new(FakeLinks::default());
+    a.link_opener = Some(links.clone());
+    open_movie_details(&mut a, 2); // Movie C
+    assert_eq!(
+        a.movie_buttons(),
+        [
+            MovieButton::Play,
+            MovieButton::Trailer,
+            MovieButton::Favorite
+        ]
+    );
+    assert_eq!(a.movie_button_label(MovieButton::Trailer), "Trailer");
+    press(&mut a, &[Action::Right, Action::Select]);
+    assert_eq!(
+        *links.opened.lock().unwrap(),
+        ["https://www.youtube.com/watch?v=dQw4w9WgXcQ"]
+    );
+    assert_eq!(a.router.current(), View::MovieDetails, "the app stays put");
+    assert!(engine.loads.lock().unwrap().is_empty(), "nothing plays");
+}
+
+#[test]
+fn movies_without_a_trailer_have_no_trailer_button() {
+    let (mut a, _, _) = movies_app("trailer_none");
+    open_movie_details(&mut a, 0); // Movie A
+    assert!(!a.movie_buttons().contains(&MovieButton::Trailer));
+}
+
+#[test]
+fn without_a_link_opener_the_trailer_reports_it() {
+    let (mut a, _, _) = movies_app("trailer_no_opener");
+    open_movie_details(&mut a, 2);
+    a.activate_movie_button(MovieButton::Trailer, 0);
+    assert_eq!(
+        a.notice.as_deref(),
+        Some("Trailers cannot open on this system.")
     );
 }
