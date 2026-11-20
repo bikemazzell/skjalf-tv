@@ -135,6 +135,8 @@ pub struct MovieInfo {
     pub release_date: Option<String>,
     pub duration_secs: Option<u64>,
     pub rating: Option<String>,
+    /// Poster image URL from the details (`http` or `https` only).
+    pub poster: Option<String>,
 }
 
 /// A provider rating with one decimal ("7.296" is "7.3", "7" is "7.0").
@@ -194,12 +196,15 @@ pub struct Episode {
     pub extension: String,
     pub duration_secs: Option<u64>,
     pub plot: Option<String>,
+    /// Episode still image URL, when the provider has one.
+    pub image: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Season {
     pub number: u32,
     pub name: String,
+    pub cover: Option<String>,
     pub episodes: Vec<Episode>,
 }
 

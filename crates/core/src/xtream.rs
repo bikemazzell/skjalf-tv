@@ -531,6 +531,10 @@ struct RawMovieMeta {
     duration_secs: Option<Flex>,
     #[serde(default)]
     rating: Option<Flex>,
+    #[serde(default)]
+    movie_image: Option<Flex>,
+    #[serde(default)]
+    cover_big: Option<Flex>,
 }
 
 #[derive(Deserialize, Default)]
@@ -565,6 +569,15 @@ pub fn movie_info(
             .and_then(|secs| u64::try_from(secs).ok())
             .filter(|secs| *secs > 0),
         rating: text(meta.rating),
+        poster: image_url(meta.movie_image).or_else(|| image_url(meta.cover_big)),
+    })
+}
+
+/// An art URL the app may download: `http` or `https` only.
+fn image_url(value: Option<Flex>) -> Option<String> {
+    text(value).filter(|url| {
+        let lower = url.to_ascii_lowercase();
+        lower.starts_with("http://") || lower.starts_with("https://")
     })
 }
 
@@ -651,6 +664,12 @@ struct RawSeason {
     season_number: Option<Flex>,
     #[serde(default)]
     name: Option<Flex>,
+    #[serde(default)]
+    cover_big: Option<Flex>,
+    #[serde(default)]
+    cover: Option<Flex>,
+    #[serde(default)]
+    cover_tmdb: Option<Flex>,
 }
 
 #[derive(Deserialize, Default)]
@@ -659,6 +678,8 @@ struct RawEpisodeMeta {
     duration_secs: Option<Flex>,
     #[serde(default)]
     plot: Option<Flex>,
+    #[serde(default)]
+    movie_image: Option<Flex>,
 }
 
 #[derive(Deserialize)]
@@ -707,17 +728,22 @@ pub fn series_info(
         &[("series_id", provider_id(series_id))],
         FetchLimits::DETAILS,
     )?;
-    let names: std::collections::HashMap<u32, String> = response
-        .seasons
-        .into_iter()
-        .filter_map(|season| {
-            Some((
-                season_number(season.season_number)?,
-                text(season.name).unwrap_or_default(),
-            ))
-        })
-        .filter(|(_, name)| !name.is_empty())
-        .collect();
+    let mut names: std::collections::HashMap<u32, String> = Default::default();
+    let mut covers: std::collections::HashMap<u32, String> = Default::default();
+    for season in response.seasons {
+        let Some(number) = season_number(season.season_number) else {
+            continue;
+        };
+        if let Some(name) = text(season.name) {
+            names.insert(number, name);
+        }
+        let cover = image_url(season.cover_big)
+            .or_else(|| image_url(season.cover))
+            .or_else(|| image_url(season.cover_tmdb));
+        if let Some(cover) = cover {
+            covers.insert(number, cover);
+        }
+    }
     let mut by_season: std::collections::BTreeMap<u32, Vec<Episode>> = Default::default();
     for (key, episodes) in response.episodes {
         let key_number = key.trim().parse::<u32>().ok();
@@ -740,6 +766,7 @@ pub fn series_info(
                     .and_then(|secs| u64::try_from(secs).ok())
                     .filter(|secs| *secs > 0),
                 plot: text(episode.info.plot),
+                image: image_url(episode.info.movie_image),
                 id,
                 number,
             });
@@ -754,6 +781,7 @@ pub fn series_info(
                     .get(&number)
                     .cloned()
                     .unwrap_or_else(|| format!("Season {number}")),
+                cover: covers.remove(&number),
                 number,
                 episodes,
             }

@@ -346,3 +346,55 @@ fn ratings_format_to_one_decimal_and_hide_when_zero_or_unparsable() {
         assert_eq!(format_rating(hidden), None, "{hidden:?}");
     }
 }
+
+#[test]
+fn movie_info_reads_the_poster_and_prefers_the_movie_image() {
+    let body = r#"{"info":{"movie_image":"https://img.example/p.jpg","cover_big":"https://img.example/big.jpg"}}"#;
+    let f = Routes::new(vec![("get_vod_info", body)]);
+    let info = xtream::movie_info(&f, &source(), "7").unwrap();
+    assert_eq!(info.poster.as_deref(), Some("https://img.example/p.jpg"));
+
+    let body = r#"{"info":{"movie_image":"","cover_big":"http://img.example/big.jpg"}}"#;
+    let f = Routes::new(vec![("get_vod_info", body)]);
+    let info = xtream::movie_info(&f, &source(), "7").unwrap();
+    assert_eq!(info.poster.as_deref(), Some("http://img.example/big.jpg"));
+}
+
+#[test]
+fn art_urls_must_be_http_or_https() {
+    let body = r#"{"info":{"movie_image":"file:///etc/passwd","cover_big":"javascript:x"}}"#;
+    let f = Routes::new(vec![("get_vod_info", body)]);
+    assert_eq!(xtream::movie_info(&f, &source(), "7").unwrap().poster, None);
+}
+
+#[test]
+fn series_info_reads_season_covers_and_episode_images() {
+    let body = r#"{
+        "seasons":[
+            {"season_number":1,"name":"Season 1","cover_big":"https://img.example/s1.jpg","cover":"https://img.example/s1-small.jpg"},
+            {"season_number":2,"cover":"","cover_tmdb":"https://img.example/s2.jpg"}
+        ],
+        "info":{},
+        "episodes":{
+            "1":[{"id":"11","episode_num":1,"info":{"movie_image":"https://img.example/e11.jpg"}}],
+            "2":[{"id":"21","episode_num":1,"info":{}}],
+            "3":[{"id":"31","episode_num":1}]
+        }
+    }"#;
+    let f = Routes::new(vec![("get_series_info", body)]);
+    let info = xtream::series_info(&f, &source(), "5").unwrap();
+    let covers: Vec<Option<&str>> = info.seasons.iter().map(|s| s.cover.as_deref()).collect();
+    assert_eq!(
+        covers,
+        [
+            Some("https://img.example/s1.jpg"),
+            Some("https://img.example/s2.jpg"),
+            None
+        ]
+    );
+    assert_eq!(
+        info.seasons[0].episodes[0].image.as_deref(),
+        Some("https://img.example/e11.jpg")
+    );
+    assert_eq!(info.seasons[1].episodes[0].image, None);
+}
