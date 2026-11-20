@@ -1,6 +1,7 @@
 //! Skjalf TV application crate: eframe shell, player engine, input, views.
 
 pub mod app;
+pub mod art;
 pub mod detect;
 pub mod fonts;
 pub mod gamepad;
@@ -78,6 +79,9 @@ pub fn run() -> eframe::Result {
             theme::apply(&cc.egui_ctx);
             fonts::install(&cc.egui_ctx);
             let mut app = App::with_store(&config_dir());
+            if let Some(cache) = player_cache_dir() {
+                app.art = art::ArtLoader::new(app.fetcher.clone(), cache.join("art"));
+            }
             app.game_mode = game_mode;
             app.auto_refresh = true;
             app.gamepad = gamepad::GamepadThread::spawn();
@@ -120,6 +124,7 @@ impl eframe::App for App {
         // Native Steam keyboard dismissal must reach the edit state before
         // the next controller event is routed.
         self.poll_keyboard();
+        self.art.poll(ctx);
 
         // Input → actions: keyboard events + gamepad queue.
         let events: Vec<egui::Event> = ctx.input(|i| i.events.clone());

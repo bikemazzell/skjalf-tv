@@ -185,6 +185,8 @@ pub struct App {
     steam_keyboard_cancel: Option<Arc<std::sync::atomic::AtomicBool>>,
     /// HTTP backend shared by background workers (injectable in tests).
     pub fetcher: Arc<dyn HttpFetcher + Send + Sync>,
+    /// Posters, covers, logos, and captured frames.
+    pub art: crate::art::ArtLoader,
     /// Background playlist fetch (setup connect).
     pub connect_rx: Option<Receiver<ConnectOutcome>>,
     /// Background EPG fetch; carries the channel id it was issued for.
@@ -221,12 +223,15 @@ impl App {
             View::Setup
         };
         let (catalog_tx, catalog_rx) = mpsc::channel();
+        let fetcher: Arc<dyn HttpFetcher + Send + Sync> = Arc::new(
+            UreqFetcher::new(settings.ignore_ssl).with_user_agent(&settings.effective_user_agent()),
+        );
         let mut app = Self {
             store,
-            fetcher: Arc::new(
-                UreqFetcher::new(settings.ignore_ssl)
-                    .with_user_agent(&settings.effective_user_agent()),
-            ),
+            // Next to the store until `run` moves it to the cache directory,
+            // so headless tests never touch the user's cache.
+            art: crate::art::ArtLoader::new(fetcher.clone(), dir.join("art-cache")),
+            fetcher,
             settings,
             favorites,
             playlist: None,

@@ -148,6 +148,7 @@ impl App {
         self.fetcher = std::sync::Arc::new(
             crate::net::UreqFetcher::new(self.settings.ignore_ssl).with_user_agent(&user_agent),
         );
+        self.art.set_fetcher(self.fetcher.clone());
         if let Some(engine) = &mut self.engine {
             if let Err(error) = engine.set_user_agent(&user_agent) {
                 self.notice = Some(format!("User Agent error: {error}"));
