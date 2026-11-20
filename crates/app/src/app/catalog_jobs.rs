@@ -458,6 +458,7 @@ impl App {
             }
         }
         self.refresh_browser(id);
+        self.rebuild_continue_art();
     }
 
     pub(super) fn request_series_info(&mut self, series_id: &str, request: u64) {

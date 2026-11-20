@@ -7603,3 +7603,33 @@ fn the_live_player_bar_shows_the_channel_logo() {
         |ctx, a| skjalf::views::player::show(ctx, a, 0)
     ));
 }
+
+#[test]
+fn continue_tiles_get_their_posters_once_the_catalog_loads() {
+    let (mut a, _, engine) = movies_app("art_continue");
+    open_movies(&mut a);
+    all_movies(&mut a);
+    press(&mut a, &[Action::Down, Action::Select, Action::Select]); // play Movie B
+    set_clock(&engine, 600.0, 5400.0);
+    a.poll_jobs(1_000);
+    a.handle_action(Action::Back, 2_000); // saves progress
+
+    // A new session starts with the progress, before any catalog loads.
+    let dir = std::env::temp_dir().join(format!(
+        "skjalf-apptest-art_continue-{}",
+        std::process::id()
+    ));
+    let mut b = main_app_at(&dir);
+    b.fetcher = Arc::new(VodFetcher::default());
+    let continue_art = |app: &App| {
+        app.main_row_tiles(skjalf::app::MainRow::Continue)
+            .first()
+            .and_then(|tile| tile.art.clone())
+    };
+    open_movies(&mut b);
+    assert_eq!(
+        continue_art(&b).as_deref(),
+        Some("https://img.example/b.png"),
+        "the poster arrives with the catalog"
+    );
+}

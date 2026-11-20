@@ -127,7 +127,12 @@ impl App {
     pub(super) fn refresh_continue_items(&mut self) {
         self.rebuild_continue_items();
         self.continue_titles = self.continue_items.iter().map(continue_title).collect();
-        // Built here, not per frame: a lookup by id scans the whole catalog.
+        self.rebuild_continue_art();
+    }
+
+    /// Built on changes, not per frame: a lookup by id scans the whole
+    /// catalog. Catalogs that arrive later rebuild it too.
+    pub(super) fn rebuild_continue_art(&mut self) {
         self.continue_art = self
             .continue_items
             .iter()
