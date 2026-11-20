@@ -10,13 +10,15 @@ Skjalf TV contains no channels or content. You need your own IPTV subscription o
 
 <a href="https://alternativeto.net/software/skjalf-tv/about/?utm_source=badge&utm_medium=referral"><img src="https://alternativeto.net/static/badges/badge-compact-color.svg" alt="Skjalf TV | AlternativeTo" width="171" height="55"></a>
 
-![The main screen with Continue Watching, Latest Movies, and Latest Series](docs/screenshots/home.png)
+![The main screen with posters in Continue Watching, Latest Movies, and Latest Series](docs/screenshots/home.png)
 
-| Live TV with favorites | The live player with program information |
+| Live TV with channel logos | The live player with program information |
 |---|---|
-| ![Live TV channel list](docs/screenshots/live-tv.png) | ![Live player with the transport bar](docs/screenshots/player.png) |
+| ![Live TV channel list with logos](docs/screenshots/live-tv.png) | ![Live player with the channel logo and the transport bar](docs/screenshots/player.png) |
+| **Movie details with the poster** | **Audio and subtitle choice in the player** |
+| ![Movie details screen with a poster](docs/screenshots/details.png) | ![The audio and subtitle panel over a playing movie](docs/screenshots/tracks.png) |
 
-The screenshots show the app at the Deck's resolution of 1280x800, connected to a test server with made-up titles.
+The screenshots show the app at the Deck's resolution of 1280x800, connected to a test server with made-up titles and generated artwork.
 
 ## Features
 
