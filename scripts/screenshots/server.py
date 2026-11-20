@@ -47,6 +47,7 @@ def api(action, query):
         return {"info": {"name": name, "description": PLOTS.get(mid, "A story told in quiet rooms and long journeys."),
                          "genre": genre, "director": "Mara Ellison", "cast": "Jonah Reyes, Ilse Varga, Tom Ashby",
                          "releasedate": f"{year}-03-14", "duration_secs": str(minutes * 60), "rating": rating,
+                         "youtube_trailer": "SkjalfDemo1",
                          "movie_image": f"{BASE}/images/movie-{mid}.png"},
                 "movie_data": {"stream_id": int(mid), "container_extension": "mkv"}}
     if action == "get_series_categories":

@@ -127,21 +127,27 @@ press Left Down Down Right
 sleep 1.5
 shoot live-tv
 
-# On software OpenGL the first playback of a session stays black; play the
-# channel once, leave, and play it again.
-press Return
-sleep 4
-press Escape
-sleep 1.5
-press Return
-sleep 8
-press e
-sleep 1.5
-shoot player
-# The colour bars must show; a black or broken picture fails the run.
-colour=$(convert "$WORK/shots/player.png" -crop 600x300+300+100 -colorspace HSL -channel G -separate -format "%[fx:mean]" info:)
-python3 -c "import sys; sys.exit(0 if float('$colour') > 0.3 else 1)" ||
-    fail "the live picture shows no colour bars (saturation $colour)"
+# On software OpenGL a live playback sometimes stays black. Play the
+# channel, check the picture for colour, and retry a few times.
+colour() {
+    convert "$WORK/shots/$1.png" -crop 600x300+300+100 -colorspace HSL \
+        -channel G -separate -format "%[fx:mean]" info:
+}
+attempt=1
+while :; do
+    press Return
+    sleep 8
+    press e
+    sleep 1.5
+    shoot player
+    saturation=$(colour player)
+    python3 -c "import sys; sys.exit(0 if float('$saturation') > 0.3 else 1)" && break
+    [ "$attempt" -lt 4 ] || fail "the live picture shows no colour bars after $attempt tries"
+    echo "  live picture black (try $attempt); playing again"
+    attempt=$((attempt + 1))
+    press Escape
+    sleep 1.5
+done
 
 # Back to Main, then the second Continue Watching tile.
 press Escape Escape
