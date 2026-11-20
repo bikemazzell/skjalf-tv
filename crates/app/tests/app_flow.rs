@@ -7269,3 +7269,28 @@ fn settings_set_the_languages_and_subtitles_for_every_stream() {
         );
     }
 }
+
+fn wide_rects(shape: &egui::Shape, min_width: f32, found: &mut Vec<egui::Rect>) {
+    match shape {
+        egui::Shape::Rect(rect) if rect.rect.width() >= min_width => found.push(rect.rect),
+        egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| wide_rects(s, min_width, found)),
+        _ => {}
+    }
+}
+
+#[test]
+fn settings_buttons_form_a_centered_column() {
+    let mut a = settings_app("settings_centered");
+    let (_, output) = render_labels(&mut a, skjalf::views::settings::show);
+    let mut buttons = Vec::new();
+    for shape in &output.shapes {
+        wide_rects(&shape.shape, 300.0, &mut buttons);
+    }
+    // Skip the full-screen panel background.
+    buttons.retain(|rect| rect.width() < 1000.0);
+    assert!(buttons.len() >= 8, "one rect per button: {buttons:?}");
+    for rect in buttons {
+        assert!((rect.width() - 640.0).abs() < 1.0, "640 wide: {rect:?}");
+        assert!((rect.center().x - 512.0).abs() < 2.0, "centered: {rect:?}");
+    }
+}

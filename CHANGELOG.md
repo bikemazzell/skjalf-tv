@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.4 - 2026-11-19
+
+- The Settings screen is a centered column, so it no longer leaves the right half of the screen empty.
+
 ## 0.1.3 - 2026-11-19
 
 - Audio and subtitle languages. Settings has three new rows: Audio Language, Subtitles (On or Off), and Subtitle Language. Every movie, episode, and channel tries these languages. A stream without your audio language plays its default audio. A stream without your subtitle language shows no subtitles.
