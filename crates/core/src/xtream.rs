@@ -44,6 +44,11 @@ pub trait HttpFetcher {
     fn get_with(&self, url: &str, _limits: FetchLimits) -> Result<String, FetchError> {
         self.get(url)
     }
+
+    /// Raw bytes (images), at most `max_bytes`.
+    fn get_bytes(&self, _url: &str, _max_bytes: usize) -> Result<Vec<u8>, FetchError> {
+        Err(FetchError("Downloads are not supported here.".into()))
+    }
 }
 
 #[derive(Debug, Error, PartialEq)]

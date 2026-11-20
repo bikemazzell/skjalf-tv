@@ -172,16 +172,21 @@ fn cache_name_for(source_id: &str, kind: &str) -> String {
 /// Raw ids are URLs (slashes, `..`, way past NAME_MAX) and must not become
 /// path components.
 fn cache_name(source_id: &str) -> String {
+    format!("{}.json", fnv_hex(source_id))
+}
+
+/// FNV-1a 64-bit hash of `text` as 16 hex digits.
+pub(crate) fn fnv_hex(text: &str) -> String {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-    for b in source_id.bytes() {
+    for b in text.bytes() {
         hash ^= u64::from(b);
         hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
     }
-    format!("{hash:016x}.json")
+    format!("{hash:016x}")
 }
 
 /// `<file>.<ext>` → `<file>.<ext>.tmp` in the same directory (rename target).
-fn sibling_temp(path: &Path) -> PathBuf {
+pub(crate) fn sibling_temp(path: &Path) -> PathBuf {
     let mut os = path.as_os_str().to_os_string();
     os.push(".tmp");
     PathBuf::from(os)
@@ -189,14 +194,14 @@ fn sibling_temp(path: &Path) -> PathBuf {
 
 /// Restrict permissions: 0o700 for directories, 0o600 for files (best-effort).
 #[cfg(unix)]
-fn restrict(path: &Path, dir: bool) {
+pub(crate) fn restrict(path: &Path, dir: bool) {
     use std::os::unix::fs::PermissionsExt;
     let mode = if dir { 0o700 } else { 0o600 };
     let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode));
 }
 
 #[cfg(not(unix))]
-fn restrict(_path: &Path, _dir: bool) {}
+pub(crate) fn restrict(_path: &Path, _dir: bool) {}
 
 /// serde failures are treated as IO-level failures for callers.
 fn io_err<E: std::fmt::Display>(e: E) -> StoreError {

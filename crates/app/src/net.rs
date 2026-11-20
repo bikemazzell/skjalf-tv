@@ -70,10 +70,23 @@ impl HttpFetcher for UreqFetcher {
         }
         .fetch(url)
     }
+
+    fn get_bytes(&self, url: &str, max_bytes: usize) -> Result<Vec<u8>, FetchError> {
+        Self {
+            max_response_bytes: max_bytes,
+            ..self.clone()
+        }
+        .fetch_bytes(url)
+    }
 }
 
 impl UreqFetcher {
     fn fetch(&self, url: &str) -> Result<String, FetchError> {
+        let bytes = self.fetch_bytes(url)?;
+        Ok(String::from_utf8_lossy(&bytes).into_owned())
+    }
+
+    fn fetch_bytes(&self, url: &str) -> Result<Vec<u8>, FetchError> {
         let resp = self.agent().get(url).call().map_err(|e| match e {
             ureq::Error::Status(status, _) => FetchError(format!("HTTP status {status}.")),
             ureq::Error::Transport(transport) if transport_timed_out(&transport) => {
@@ -105,7 +118,7 @@ impl UreqFetcher {
                 "Server response exceeds the {limit} limit."
             )));
         }
-        Ok(String::from_utf8_lossy(&bytes).into_owned())
+        Ok(bytes)
     }
 }
 
@@ -150,6 +163,20 @@ mod tests {
             line.strip_prefix("user-agent: ")
                 .or(line.strip_prefix("User-Agent: "))
         })
+    }
+
+    #[test]
+    fn byte_downloads_keep_binary_data_and_respect_the_limit() {
+        let body = vec![0xff, 0xd8, 0x00, 0x80];
+        let headers = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n", body.len());
+        let (url, worker) = serve_once(&headers, body.clone(), Duration::ZERO, Duration::ZERO);
+        assert_eq!(UreqFetcher::new(false).get_bytes(&url, 1024).unwrap(), body);
+        worker.join().unwrap();
+
+        let (url, worker) = serve_once(&headers, body, Duration::ZERO, Duration::ZERO);
+        let error = UreqFetcher::new(false).get_bytes(&url, 3).unwrap_err();
+        assert!(error.0.contains("limit"), "{error}");
+        worker.join().unwrap();
     }
 
     #[test]

@@ -3,6 +3,7 @@
 //! Everything in this crate is deterministic and I/O-free except through
 //! explicitly injected traits (`HttpFetcher`) or file paths (`store`), so the
 //! whole app behavior is unit-testable without a display, network, or libmpv.
+pub mod art_cache;
 pub mod browse;
 pub mod catalog;
 pub mod display;
