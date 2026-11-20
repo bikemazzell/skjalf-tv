@@ -1,8 +1,13 @@
 # Changelog
 
-## 0.1.4 - 2026-11-19
+## 0.2.0 - 2026-11-19
 
-- The Settings screen is a centered column, so it no longer leaves the right half of the screen empty.
+- Posters and covers on the movie and series details screens and on the Main rows, and channel logos in Live TV and the player.
+- A movie or series without a poster shows a frame from the video. The details screen captures it once, only while nothing plays and only when your account has a free connection.
+- Images are cached in `~/.cache/skjalf/art`, up to 300 MiB.
+- Requests name the app with the User-Agent `SkjalfTV/0.2.0`. Settings has a new User Agent row for providers that serve only known players.
+- The Settings screen is a centered column.
+- Image requests go to the servers that your provider lists for posters and logos, which can be other servers than the provider. The Privacy section of the README explains this.
 
 ## 0.1.3 - 2026-11-19
 

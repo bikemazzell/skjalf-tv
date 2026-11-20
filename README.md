@@ -22,7 +22,8 @@ The screenshots show the app at the Deck's resolution of 1280x800, connected to 
 
 - Live TV with channel groups, search, name sort, favorites, channel numbers, and channel zapping.
 - A movie and series library that stays fast with catalogs of more than 180,000 titles.
-- Details screens with ratings, genres, plot, seasons, and episodes.
+- Details screens with posters, ratings, genres, plot, seasons, and episodes.
+- Posters on the Main rows and channel logos in Live TV. A movie or series without a poster shows a frame from the video.
 - Resume where you stopped. Main shows a Continue Watching row and the latest movies and series.
 - Watched and in-progress markers in every list.
 - Favorite channels, movies, series, and whole groups. Favorite groups appear at the top of the group list.
@@ -126,6 +127,14 @@ When the Deck is docked to a TV, open the Skjalf TV properties in Steam and set 
 
 To change the source later, open Settings and select Edit Source. Settings also has Refresh Content and the refresh interval: Off, 6 hours, 12 hours, 24 hours, 48 hours, or 7 days.
 
+The User Agent row sets the name that the app sends with each request to your provider. The default is `SkjalfTV/` and the version number. Some providers serve only known players. If yours refuses the app, select User Agent and type the name of a player that your provider accepts. Clear the field to return to the default.
+
+### Posters and captured frames
+
+The app shows the posters, covers, and logos that your provider lists, and keeps them in `~/.cache/skjalf/art` (or `$XDG_CACHE_HOME/skjalf/art`), up to 300 MiB. When the cache is full, the images that were used least recently go first.
+
+When a movie or series has no poster, its details screen captures one frame from about 10% into the video and keeps it in the same cache. A capture opens the stream, so it uses one of your provider's connections for a few seconds. The app captures only while nothing plays, only when your account has a free connection, and at most once per title. Play or Back cancels a capture.
+
 ### Slow connections
 
 If video stops often to buffer, open Settings and change these values:
@@ -141,7 +150,7 @@ The buffer is a temporary file in `~/.cache/skjalf` (or `$XDG_CACHE_HOME/skjalf`
 
 Skjalf TV keeps your settings, favorites, watch progress, and cached catalogs in `~/.config/skjalf` (or `$XDG_CONFIG_HOME/skjalf`). These files contain your provider address and credentials. The app creates them readable only by your user. Treat the whole directory as private.
 
-The app sends no data anywhere except to your provider. It does not write your credentials to logs or error messages.
+The app sends data only to your provider and to the image servers that your provider lists for posters and logos. These can be other servers, for example an image service. An image request tells that server your IP address and the app's User-Agent, but not your provider credentials. The app does not write your credentials to logs or error messages.
 
 ## Build
 
