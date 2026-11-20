@@ -19,6 +19,7 @@ pub enum BarControl {
     Next,
     Favorite,
     Volume,
+    Tracks,
 }
 
 impl BarControl {
@@ -32,24 +33,27 @@ impl BarControl {
             BarControl::Next => "Next channel",
             BarControl::Favorite => "Favorite",
             BarControl::Volume => "Volume",
+            BarControl::Tracks => "Audio and subtitles",
         }
     }
 }
 
-const ON_DEMAND_CONTROLS: [BarControl; 5] = [
+const ON_DEMAND_CONTROLS: [BarControl; 6] = [
     BarControl::Back,
     BarControl::Rewind,
     BarControl::PlayPause,
     BarControl::Forward,
     BarControl::Volume,
+    BarControl::Tracks,
 ];
-const LIVE_CONTROLS: [BarControl; 6] = [
+const LIVE_CONTROLS: [BarControl; 7] = [
     BarControl::Back,
     BarControl::Previous,
     BarControl::PlayPause,
     BarControl::Next,
     BarControl::Favorite,
     BarControl::Volume,
+    BarControl::Tracks,
 ];
 
 /// Index of Play/Pause in both control lists; bar focus starts here.
@@ -110,7 +114,11 @@ impl App {
     }
 
     pub(super) fn handle_player(&mut self, action: Action, now_ms: u64) {
+        if let PlayerFocus::Tracks(row) = self.player_focus {
+            return self.tracks_panel_action(row, action);
+        }
         match action {
+            Action::Options => return self.open_tracks_panel(),
             Action::Favorite => return self.toggle_playing_favorite(now_ms),
             Action::Epg if !self.is_on_demand() => return self.show_program_info(now_ms),
             Action::Digit(_) if self.is_on_demand() => return,
@@ -125,6 +133,7 @@ impl App {
             PlayerFocus::Video => self.video_action(action, now_ms),
             PlayerFocus::Controls(index) => self.bar_action(index, action, now_ms),
             PlayerFocus::Seek => self.seek_bar_action(action, now_ms),
+            PlayerFocus::Tracks(_) => {}
         }
     }
 
@@ -204,6 +213,7 @@ impl App {
             BarControl::Next => self.step_channel(true, now_ms),
             BarControl::Favorite => self.toggle_playing_favorite(now_ms),
             BarControl::Volume => self.toggle_mute(now_ms),
+            BarControl::Tracks => self.open_tracks_panel(),
         }
     }
 

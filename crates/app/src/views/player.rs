@@ -7,8 +7,14 @@ use egui_glow::glow::HasContext;
 use skjalf_core::catalog::format_duration;
 use skjalf_core::display::visual_text;
 use skjalf_core::nav::OsdKind;
+use skjalf_core::tracks::{selected, track_label, Track, TrackKind};
 
 use crate::app::{App, PlayerFocus};
+
+/// The tracks panel's step buttons (touch, and tests).
+pub fn tracks_button_id(kind: TrackKind, forward: bool) -> egui::Id {
+    egui::Id::new(("tracks-step", kind == TrackKind::Audio, forward))
+}
 
 pub fn show(ctx: &egui::Context, app: &mut App, now_ms: u64) {
     let visible = app.player.osd_visible(now_ms);
@@ -56,13 +62,25 @@ pub fn show(ctx: &egui::Context, app: &mut App, now_ms: u64) {
                 ui.painter().add(callback);
             } else {
                 ui.centered_and_justified(|ui| {
-                    ui.label(egui::RichText::new("No video").weak());
+                    // Not selectable: a selectable label would take video taps.
+                    ui.add(
+                        egui::Label::new(egui::RichText::new("No video").weak()).selectable(false),
+                    );
                 });
             }
         });
 
     if video_tapped {
-        app.player.show_osd(OsdKind::Info, now_ms);
+        if let PlayerFocus::Tracks(_) = app.player_focus {
+            app.player_focus = PlayerFocus::Video;
+        } else {
+            app.player.show_osd(OsdKind::Info, now_ms);
+        }
+    }
+    if let PlayerFocus::Tracks(row) = app.player_focus {
+        if let Some((kind, forward)) = tracks_panel(ctx, &app.tracks(), row) {
+            app.switch_track(kind, forward);
+        }
     }
 
     if let Some(buffer) = app.media.buffer.filter(|buffer| buffer.waiting) {
@@ -191,5 +209,84 @@ pub fn show(ctx: &egui::Context, app: &mut App, now_ms: u64) {
 
     if visible || video_tapped || app.paused || app.player_focus != PlayerFocus::Video {
         super::transport_bar::show(ctx, app, now_ms);
+    }
+}
+
+/// Audio and subtitle rows with step buttons; returns a tapped step.
+fn tracks_panel(
+    ctx: &egui::Context,
+    tracks: &[Track],
+    focus: TrackKind,
+) -> Option<(TrackKind, bool)> {
+    let mut tapped = None;
+    egui::Area::new("tracks_panel".into())
+        .order(egui::Order::Foreground)
+        .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -150.0))
+        .show(ctx, |ui| {
+            egui::Frame::NONE
+                .fill(Color32::from_black_alpha(220))
+                .corner_radius(8.0)
+                .inner_margin(16.0)
+                .show(ui, |ui| {
+                    egui::Grid::new("tracks_rows")
+                        .num_columns(4)
+                        .spacing([16.0, 8.0])
+                        .show(ui, |ui| {
+                            for (kind, name) in [(TrackKind::Audio, "Audio"), (TrackKind::Sub, "Subtitles")] {
+                                let color = if kind == focus {
+                                    crate::theme::ACCENT
+                                } else {
+                                    Color32::LIGHT_GRAY
+                                };
+                                ui.label(egui::RichText::new(name).size(crate::theme::HEADING_SIZE).color(color));
+                                for (forward, arrow) in [(false, "\u{2039}"), (true, "\u{203a}")] {
+                                    if forward {
+                                        ui.add(
+                                            egui::Label::new(
+                                                egui::RichText::new(describe(tracks, kind))
+                                                    .size(crate::theme::HEADING_SIZE)
+                                                    .color(Color32::WHITE),
+                                            )
+                                            .wrap_mode(egui::TextWrapMode::Extend),
+                                        );
+                                    }
+                                    let size = egui::Vec2::splat(crate::theme::MIN_HIT);
+                                    let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+                                    let response = ui.interact(rect, tracks_button_id(kind, forward), egui::Sense::click());
+                                    ui.painter().text(
+                                        rect.center(),
+                                        egui::Align2::CENTER_CENTER,
+                                        arrow,
+                                        egui::FontId::proportional(crate::theme::HEADING_SIZE),
+                                        color,
+                                    );
+                                    if response.clicked() {
+                                        tapped = Some((kind, forward));
+                                    }
+                                }
+                                ui.end_row();
+                            }
+                        });
+                    ui.label(
+                        egui::RichText::new("\u{2191}\u{2193} row  \u{00b7}  \u{2190}\u{2192} switch  \u{00b7}  B close")
+                            .color(Color32::LIGHT_GRAY),
+                    );
+                });
+        });
+    tapped
+}
+
+/// The current choice for one kind, e.g. `German · AC3 5.1  (2/3)`.
+fn describe(tracks: &[Track], kind: TrackKind) -> String {
+    let of_kind: Vec<&Track> = tracks.iter().filter(|t| t.kind == kind).collect();
+    if of_kind.is_empty() {
+        return "None".into();
+    }
+    match selected(tracks, kind) {
+        Some(current) => {
+            let position = of_kind.iter().position(|t| t.id == current.id).unwrap_or(0) + 1;
+            format!("{}  ({position}/{})", track_label(current), of_kind.len())
+        }
+        None => format!("Off  ({} available)", of_kind.len()),
     }
 }

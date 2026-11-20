@@ -195,7 +195,8 @@ pub fn button_to_action(code: u16) -> Option<Action> {
         BTN_WEST => Some(Action::Favorite),
         BTN_TL => Some(Action::ChUp),
         BTN_TR => Some(Action::ChDown),
-        BTN_START | BTN_SELECT => Some(Action::Quit),
+        BTN_START => Some(Action::Quit),
+        BTN_SELECT => Some(Action::Options),
         BTN_DPAD_UP => Some(Action::Up),
         BTN_DPAD_DOWN => Some(Action::Down),
         BTN_DPAD_LEFT => Some(Action::Left),
@@ -481,6 +482,7 @@ mod tests {
         assert_eq!(button_to_action(BTN_TL), Some(Action::ChUp));
         assert_eq!(button_to_action(BTN_TR), Some(Action::ChDown));
         assert_eq!(button_to_action(BTN_START), Some(Action::Quit));
+        assert_eq!(button_to_action(BTN_SELECT), Some(Action::Options));
     }
 
     #[test]

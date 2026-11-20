@@ -4,9 +4,11 @@
 
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
 use skjalf::player::{BufferPlan, MpvEngine, PlayerEngine, PlayerError, PlayerEvent};
+use skjalf_core::tracks::{selected, SubtitlePref, Track, TrackKind};
 
 fn clip() -> PathBuf {
     generated_clip("skjalf-m8-testsrc.mp4", 3)
@@ -362,4 +364,276 @@ fn a_later_load_without_start_begins_near_zero() {
     wait_loaded(&mut engine);
     let position = engine.position().unwrap_or(0.0);
     assert!(position < 1.0, "start leaked into a later load: {position}");
+}
+
+/// 6 s clip: video, English + German audio, English subtitles.
+/// Generated once per test run.
+fn multitrack_clip() -> PathBuf {
+    static CLIP: OnceLock<PathBuf> = OnceLock::new();
+    CLIP.get_or_init(generate_multitrack_clip).clone()
+}
+
+fn generate_multitrack_clip() -> PathBuf {
+    let path = std::env::temp_dir().join("skjalf-tracks-testsrc.mkv");
+    if !path.exists() {
+        let srt = std::env::temp_dir().join("skjalf-tracks-testsrc.srt");
+        std::fs::write(&srt, "1\n00:00:00,000 --> 00:00:06,000\nHello\n").unwrap();
+        let status = Command::new("ffmpeg")
+            .args(["-y", "-loglevel", "error"])
+            .args(["-f", "lavfi", "-i", "testsrc=duration=6:size=64x48:rate=10"])
+            .args(["-f", "lavfi", "-i", "sine=frequency=440:duration=6"])
+            .args(["-f", "lavfi", "-i", "sine=frequency=880:duration=6"])
+            .arg("-i")
+            .arg(&srt)
+            .args(["-map", "0:v", "-map", "1:a", "-map", "2:a", "-map", "3:s"])
+            .args(["-pix_fmt", "yuv420p", "-c:a", "aac", "-c:s", "srt"])
+            .args(["-metadata:s:a:0", "language=eng"])
+            .args([
+                "-metadata:s:a:1",
+                "language=ger",
+                "-metadata:s:a:1",
+                "title=Deutsch",
+            ])
+            .args(["-metadata:s:s:0", "language=eng"])
+            .args(["-disposition:a:0", "default", "-disposition:s:0", "0"])
+            .arg(&path)
+            .status()
+            .expect("ffmpeg installed on dev box");
+        // mpv would auto-load a same-named .srt as an extra external track.
+        std::fs::remove_file(&srt).unwrap();
+        assert!(status.success(), "ffmpeg multitrack clip generation failed");
+    }
+    path
+}
+
+/// Poll the engine's observed track list until `done` holds (10 s budget).
+fn wait_tracks(e: &MpvEngine, done: impl Fn(&[Track]) -> bool) -> Vec<Track> {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let tracks = e.tracks();
+        if done(&tracks) || Instant::now() >= deadline {
+            return tracks;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+fn selected_lang(tracks: &[Track], kind: TrackKind) -> Option<String> {
+    selected(tracks, kind).and_then(|t| t.lang.clone())
+}
+
+fn both_audio_tracks(tracks: &[Track]) -> bool {
+    tracks.iter().filter(|t| t.kind == TrackKind::Audio).count() == 2
+        && selected(tracks, TrackKind::Audio).is_some()
+}
+
+#[test]
+#[ignore]
+fn lists_switches_and_disables_tracks() {
+    let mut e = MpvEngine::headless().unwrap();
+    e.set_track_prefs(None, &SubtitlePref::Auto).unwrap();
+    e.load(multitrack_clip().to_str().unwrap()).unwrap();
+
+    let tracks = wait_tracks(&e, both_audio_tracks);
+    let langs: Vec<_> = tracks
+        .iter()
+        .map(|t| (t.kind, t.lang.as_deref(), t.title.as_deref()))
+        .collect();
+    assert_eq!(
+        langs,
+        vec![
+            (TrackKind::Audio, Some("eng"), None),
+            (TrackKind::Audio, Some("ger"), Some("Deutsch")),
+            (TrackKind::Sub, Some("eng"), None),
+        ]
+    );
+    assert_eq!(
+        selected_lang(&tracks, TrackKind::Audio).as_deref(),
+        Some("eng")
+    );
+
+    // Switches go out asynchronously; wait for mpv's own track list to agree.
+    let german = tracks[1].id;
+    e.select_track(TrackKind::Audio, Some(german)).unwrap();
+    std::thread::sleep(Duration::from_millis(300));
+    let tracks = wait_tracks(&e, |t| {
+        selected_lang(t, TrackKind::Audio).as_deref() == Some("ger")
+    });
+    assert_eq!(
+        selected_lang(&tracks, TrackKind::Audio).as_deref(),
+        Some("ger")
+    );
+    assert_eq!(property::<i64>(&e, "aid"), german, "mpv itself switched");
+
+    let sub = tracks[2].id;
+    e.select_track(TrackKind::Sub, Some(sub)).unwrap();
+    std::thread::sleep(Duration::from_millis(300));
+    let tracks = wait_tracks(&e, |t| selected(t, TrackKind::Sub).is_some());
+    assert_eq!(selected(&tracks, TrackKind::Sub).map(|t| t.id), Some(sub));
+    assert_eq!(property::<i64>(&e, "sid"), sub);
+
+    e.select_track(TrackKind::Sub, None).unwrap();
+    std::thread::sleep(Duration::from_millis(300));
+    let tracks = wait_tracks(&e, |t| selected(t, TrackKind::Sub).is_none());
+    assert!(selected(&tracks, TrackKind::Sub).is_none(), "subtitles off");
+    assert_eq!(property::<String>(&e, "sid"), "no");
+}
+
+#[test]
+#[ignore]
+fn language_preferences_pick_tracks_on_every_load() {
+    let clip = multitrack_clip();
+    let clip = clip.to_str().unwrap();
+    let mut e = MpvEngine::headless().unwrap();
+
+    // Canonical "de" must match the stream's ISO 639-2 "ger" tag.
+    e.set_track_prefs(Some("de"), &SubtitlePref::Lang("en".into()))
+        .unwrap();
+    e.load(clip).unwrap();
+    let tracks = wait_tracks(&e, |t| {
+        both_audio_tracks(t) && selected(t, TrackKind::Sub).is_some()
+    });
+    assert_eq!(
+        selected_lang(&tracks, TrackKind::Audio).as_deref(),
+        Some("ger")
+    );
+    assert_eq!(
+        selected_lang(&tracks, TrackKind::Sub).as_deref(),
+        Some("eng")
+    );
+
+    // mpv carries a manual switch over to the next file; re-applying the
+    // preferences before each load (as the app does) must undo it.
+    e.select_track(TrackKind::Audio, Some(tracks[0].id))
+        .unwrap();
+    e.select_track(TrackKind::Sub, None).unwrap();
+    std::thread::sleep(Duration::from_millis(300));
+    e.set_track_prefs(Some("de"), &SubtitlePref::Lang("en".into()))
+        .unwrap();
+    e.load(clip).unwrap();
+    let tracks = wait_tracks(&e, |t| {
+        both_audio_tracks(t)
+            && selected_lang(t, TrackKind::Audio).as_deref() == Some("ger")
+            && selected(t, TrackKind::Sub).is_some()
+    });
+    assert_eq!(
+        selected_lang(&tracks, TrackKind::Audio).as_deref(),
+        Some("ger")
+    );
+    assert_eq!(
+        selected_lang(&tracks, TrackKind::Sub).as_deref(),
+        Some("eng")
+    );
+
+    e.set_track_prefs(Some("en"), &SubtitlePref::Off).unwrap();
+    e.load(clip).unwrap();
+    let tracks = wait_tracks(&e, |t| {
+        both_audio_tracks(t) && selected_lang(t, TrackKind::Audio).as_deref() == Some("eng")
+    });
+    assert_eq!(
+        selected_lang(&tracks, TrackKind::Audio).as_deref(),
+        Some("eng")
+    );
+    assert!(
+        selected(&tracks, TrackKind::Sub).is_none(),
+        "Off wins over stream flags"
+    );
+}
+
+#[test]
+#[ignore]
+fn a_track_switch_waits_briefly_then_restores_the_stall_wait() {
+    let clip = multitrack_clip();
+    let mut e = MpvEngine::headless().unwrap();
+    e.set_track_prefs(None, &SubtitlePref::Auto).unwrap();
+    e.load(clip.to_str().unwrap()).unwrap();
+    e.pause(false).unwrap();
+    e.set_buffering(BufferPlan {
+        start_secs: 0.0,
+        stall_secs: 10.0,
+    })
+    .unwrap();
+    let tracks = wait_tracks(&e, both_audio_tracks);
+    assert!(poll_until(&mut e, |e| e
+        .position()
+        .is_some_and(|p| p > 0.5)));
+
+    e.select_track(TrackKind::Audio, Some(tracks[1].id))
+        .unwrap();
+    assert!(
+        poll_until(&mut e, |e| property::<f64>(e, "cache-pause-wait") < 1.0),
+        "a refill after the switch waits only briefly"
+    );
+    let switched_at = e.position().unwrap();
+    assert!(
+        poll_until(&mut e, |e| e
+            .position()
+            .is_some_and(|p| p > switched_at + 1.5)
+            && property::<f64>(e, "cache-pause-wait") == 10.0),
+        "the configured stall wait returns once playback runs on"
+    );
+}
+
+/// 3 s clip: English audio, default-flagged English subtitles only.
+fn default_subtitle_clip() -> PathBuf {
+    let path = std::env::temp_dir().join("skjalf-default-subs.mkv");
+    if !path.exists() {
+        let srt = std::env::temp_dir().join("skjalf-default-subs-input.srt");
+        std::fs::write(&srt, "1\n00:00:00,000 --> 00:00:03,000\nHello\n").unwrap();
+        let status = Command::new("ffmpeg")
+            .args(["-y", "-loglevel", "error"])
+            .args(["-f", "lavfi", "-i", "testsrc=duration=3:size=64x48:rate=10"])
+            .args(["-f", "lavfi", "-i", "sine=frequency=440:duration=3"])
+            .arg("-i")
+            .arg(&srt)
+            .args(["-map", "0:v", "-map", "1:a", "-map", "2:s"])
+            .args(["-pix_fmt", "yuv420p", "-c:a", "aac", "-c:s", "srt"])
+            .args([
+                "-metadata:s:a:0",
+                "language=eng",
+                "-metadata:s:s:0",
+                "language=eng",
+            ])
+            .args(["-disposition:s:0", "default"])
+            .arg(&path)
+            .status()
+            .expect("ffmpeg installed on dev box");
+        std::fs::remove_file(&srt).unwrap();
+        assert!(
+            status.success(),
+            "ffmpeg default-subtitle clip generation failed"
+        );
+    }
+    path
+}
+
+#[test]
+#[ignore]
+fn a_subtitle_language_that_is_missing_shows_no_subtitles() {
+    let clip = default_subtitle_clip();
+    let clip = clip.to_str().unwrap();
+    let mut e = MpvEngine::headless().unwrap();
+
+    // Stream default: the default-flagged English subtitles appear.
+    e.set_track_prefs(None, &SubtitlePref::Auto).unwrap();
+    e.load(clip).unwrap();
+    let tracks = wait_tracks(&e, |t| selected(t, TrackKind::Sub).is_some());
+    assert_eq!(
+        selected_lang(&tracks, TrackKind::Sub).as_deref(),
+        Some("eng")
+    );
+
+    // German wanted, none present: no other language stands in for it.
+    e.set_track_prefs(Some("en"), &SubtitlePref::Lang("de".into()))
+        .unwrap();
+    e.load(clip).unwrap();
+    assert!(poll_until(&mut e, |e| e
+        .position()
+        .is_some_and(|p| p > 0.3)));
+    let tracks = e.tracks();
+    assert_eq!(
+        selected_lang(&tracks, TrackKind::Audio).as_deref(),
+        Some("eng")
+    );
+    assert!(selected(&tracks, TrackKind::Sub).is_none(), "{tracks:?}");
 }

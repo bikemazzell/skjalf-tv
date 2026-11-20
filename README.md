@@ -27,12 +27,15 @@ The screenshots show the app at the Deck's resolution of 1280x800, connected to 
 - Watched and in-progress markers in every list.
 - Favorite channels, movies, series, and whole groups. Favorite groups appear at the top of the group list.
 - A group filter. For example, type "SI|" to show only the Slovenian groups.
-- A standard transport bar: play, pause, seek, previous and next channel, volume, and favorite.
+- A standard transport bar: play, pause, seek, previous and next channel, volume, favorite, and audio and subtitle tracks.
+- Audio and subtitle selection. Set your audio language and subtitles once in Settings, and every stream tries them. Change the tracks of one stream in the player.
 - In Game Mode, the Steam on-screen keyboard opens automatically for text fields.
 - Correct right-to-left text for Arabic and Persian titles, and emoji in channel and group names.
 - Buffering for slow connections. A movie or episode can wait until up to 30 minutes of video is buffered, and playback can wait again after a stall.
 - Automatic refresh of the provider data. The default interval is 24 hours.
 - Scaling for the Deck screen (1280x800) and for a TV at 1920x1080.
+
+[CHANGELOG.md](CHANGELOG.md) lists the changes in each release.
 
 ## Controls
 
@@ -45,12 +48,25 @@ The screenshots show the app at the Deck's resolution of 1280x800, connected to 
 | Y | F | Add or remove a favorite |
 | L1 and R1 | Page Up and Page Down | Move one page in a list. Change the channel in the live player. |
 | Number keys | Digits | Go to a channel number in Live TV |
+| View | O | Open or close the audio and subtitle panel in the player |
 
 A hint line at the bottom of every list shows the buttons for the focused control.
 
 In the live player, Up and Down change the channel and Left and Right change the volume. Press Down to move the focus into the transport bar.
 
 In the movie and episode player, A pauses and resumes playback. Left and Right seek 10 seconds, and L1 and R1 seek 60 seconds.
+
+### Audio and subtitles
+
+Open Settings to set the languages for every stream:
+
+- Audio Language: the audio track to play. "Stream default" plays the track that the provider marks as the default.
+- Subtitles: On or Off. Subtitles are off until you turn them on.
+- Subtitle Language: the subtitles to show while Subtitles is On. "Stream default" shows the provider's default subtitle track, or the first one.
+
+Each stream tries these languages. If a stream does not have your audio language, it plays its default audio. If it does not have your subtitle language, it shows no subtitles.
+
+To change the tracks of the stream that plays now, press View, or select the subtitle icon at the right end of the transport bar. In the panel, Up and Down choose Audio or Subtitles, and Left and Right change the track. B closes the panel. The change lasts until the stream ends. The next stream uses the languages from Settings again.
 
 To type a search, press X. Type with the Steam keyboard, then press Enter or B to finish.
 

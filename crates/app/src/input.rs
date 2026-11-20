@@ -20,6 +20,8 @@ pub enum Action {
     Digit(u8),
     Favorite,
     Epg,
+    /// View button / `o`: the audio and subtitle panel in the player.
+    Options,
     /// Explicit prev/next channel (PageUp/PageDown, L1/R1).
     ChUp,
     ChDown,
@@ -63,6 +65,7 @@ fn text_action(text: &str) -> Option<Action> {
         '0'..='9' => Some(Action::Digit(c as u8 - b'0')),
         'f' | 'F' => Some(Action::Favorite),
         'e' | 'E' => Some(Action::Epg),
+        'o' | 'O' => Some(Action::Options),
         'q' | 'Q' => Some(Action::Quit),
         _ => None,
     }
@@ -122,6 +125,10 @@ mod tests {
             Some(Action::Favorite)
         );
         assert_eq!(event_to_action(&Event::Text("E".into())), Some(Action::Epg));
+        assert_eq!(
+            event_to_action(&Event::Text("o".into())),
+            Some(Action::Options)
+        );
         assert_eq!(
             event_to_action(&Event::Text("q".into())),
             Some(Action::Quit)

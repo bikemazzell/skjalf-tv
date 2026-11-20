@@ -19,7 +19,11 @@ use skjalf_core::model::{Channel, Group, Playlist, Settings, Source, SourceKind,
 use skjalf_core::nav::{OsdKind, View};
 use skjalf_core::progress::ProgressKind;
 use skjalf_core::store::Store;
+use skjalf_core::tracks::{selected, SubtitlePref, Track, TrackKind};
 use skjalf_core::xtream::{FetchError, HttpFetcher};
+
+/// Audio language, subtitle choice, and loads made before the call.
+type PrefsCall = (Option<String>, SubtitlePref, usize);
 
 #[derive(Default, Clone)]
 struct MockEngine {
@@ -35,6 +39,10 @@ struct MockEngine {
     plans: Arc<Mutex<Vec<BufferPlan>>>,
     buffer: Arc<Mutex<Option<BufferStatus>>>,
     started_now: Arc<Mutex<usize>>,
+    /// Current file tracks; `select_track` moves `selected` like mpv.
+    tracks: Arc<Mutex<Vec<Track>>>,
+    /// Track preferences per call, with the number of loads made before it.
+    prefs: Arc<Mutex<Vec<PrefsCall>>>,
 }
 
 impl PlayerEngine for MockEngine {
@@ -80,6 +88,29 @@ impl PlayerEngine for MockEngine {
     }
     fn start_now(&mut self) -> Result<(), PlayerError> {
         *self.started_now.lock().unwrap() += 1;
+        Ok(())
+    }
+    fn tracks(&self) -> Vec<Track> {
+        self.tracks.lock().unwrap().clone()
+    }
+    fn select_track(&mut self, kind: TrackKind, id: Option<i64>) -> Result<(), PlayerError> {
+        for track in self.tracks.lock().unwrap().iter_mut() {
+            if track.kind == kind {
+                track.selected = Some(track.id) == id;
+            }
+        }
+        Ok(())
+    }
+    fn set_track_prefs(
+        &mut self,
+        audio_lang: Option<&str>,
+        subtitles: &SubtitlePref,
+    ) -> Result<(), PlayerError> {
+        let loads = self.loads.lock().unwrap().len();
+        self.prefs
+            .lock()
+            .unwrap()
+            .push((audio_lang.map(Into::into), subtitles.clone(), loads));
         Ok(())
     }
 }
@@ -2971,12 +3002,8 @@ fn settings_cycle_the_buffer_waits_and_persist_them() {
         a.settings.start_buffer_secs, 1800,
         "wraps to the longest wait"
     );
-    press(&mut a, &[Action::Down, Action::Down]);
-    assert_eq!(
-        a.settings_focus,
-        SettingsFocus::StallBuffer,
-        "stays on the last row"
-    );
+    a.handle_action(Action::Down, 0);
+    assert_eq!(a.settings_focus, SettingsFocus::StallBuffer);
     a.handle_action(Action::Right, 0);
     a.handle_action(Action::Select, 0);
     assert_eq!(a.settings.stall_buffer_secs, 10);
@@ -3749,7 +3776,8 @@ fn bar_controls_differ_by_mode_and_leave_no_text_buttons() {
             BarControl::Rewind,
             BarControl::PlayPause,
             BarControl::Forward,
-            BarControl::Volume
+            BarControl::Volume,
+            BarControl::Tracks
         ]
     );
     assert_eq!(
@@ -3760,7 +3788,8 @@ fn bar_controls_differ_by_mode_and_leave_no_text_buttons() {
             BarControl::PlayPause,
             BarControl::Next,
             BarControl::Favorite,
-            BarControl::Volume
+            BarControl::Volume,
+            BarControl::Tracks
         ]
     );
 }
@@ -4757,12 +4786,11 @@ fn volume_icon_changes_volume_with_up_and_down_and_left_right_keep_moving() {
         "Left moves between controls"
     );
     assert_eq!(a.settings.volume, 80);
-    a.handle_action(Action::Right, 2_000);
-    a.handle_action(Action::Right, 2_000);
+    press(&mut a, &[Action::Right, Action::Right, Action::Right]);
     assert_eq!(
         a.player_focus,
         PlayerFocus::Controls(0),
-        "Right wraps to Back"
+        "Right wraps from Tracks to Back"
     );
     assert_eq!(a.settings.volume, 80);
     a.player_focus = PlayerFocus::Controls(4);
@@ -6920,4 +6948,324 @@ fn an_app_without_a_store_reports_storage_unavailable_on_save() {
         .as_deref()
         .unwrap_or_default()
         .contains("Storage is unavailable"));
+}
+
+// -- Audio and subtitle tracks ------------------------------------------------------
+
+fn track(id: i64, kind: TrackKind, lang: Option<&str>, selected: bool) -> Track {
+    Track {
+        id,
+        kind,
+        lang: lang.map(Into::into),
+        title: None,
+        codec: Some("ac3".into()),
+        channels: Some(6),
+        selected,
+        forced: false,
+    }
+}
+
+/// English (selected), German, and untagged audio; English and French subtitles.
+fn movie_tracks() -> Vec<Track> {
+    vec![
+        track(1, TrackKind::Audio, Some("eng"), true),
+        track(2, TrackKind::Audio, Some("ger"), false),
+        track(3, TrackKind::Audio, None, false),
+        track(1, TrackKind::Sub, Some("eng"), false),
+        track(2, TrackKind::Sub, Some("fre"), false),
+    ]
+}
+
+fn playing_multitrack_movie(tag: &str) -> (App, Arc<MockEngine>) {
+    let (a, _, engine) = playing_movie(tag);
+    *engine.tracks.lock().unwrap() = movie_tracks();
+    (a, engine)
+}
+
+fn selected_id(engine: &MockEngine, kind: TrackKind) -> Option<i64> {
+    selected(&engine.tracks.lock().unwrap(), kind).map(|t| t.id)
+}
+
+fn saved_settings(a: &App) -> Settings {
+    a.store.as_ref().unwrap().load_settings().unwrap()
+}
+
+#[test]
+fn every_load_applies_the_settings_languages_first() {
+    let (mut a, _, engine) = movies_app("tracks_prefs_movie");
+    a.settings.audio_lang = Some("de".into());
+    a.settings.subtitle_lang = Some("en".into()); // ignored while subtitles are off
+    open_movies(&mut a);
+    all_movies(&mut a);
+    press(&mut a, &[Action::Select, Action::Select]); // details, Play
+    assert_eq!(a.router.current(), View::Player);
+    assert_eq!(
+        *engine.prefs.lock().unwrap(),
+        [(Some("de".into()), SubtitlePref::Off, 0)],
+        "preferences reach the engine before the load"
+    );
+
+    let mut a = app("tracks_prefs_live");
+    let engine = MockEngine::default();
+    a.engine = Some(Box::new(engine.clone()));
+    a.settings.subtitles_on = true;
+    a.settings.subtitle_lang = Some("en".into());
+    a.handle_action(Action::Select, 0);
+    a.handle_action(Action::ChUp, 0);
+    let prefs = engine.prefs.lock().unwrap();
+    assert_eq!(prefs.len(), 2, "live channels and zaps too");
+    assert_eq!(prefs[1], (None, SubtitlePref::Lang("en".into()), 1));
+}
+
+#[test]
+fn view_button_opens_the_tracks_panel_and_back_closes_only_the_panel() {
+    let (mut a, engine) = playing_multitrack_movie("tracks_open");
+    a.handle_action(Action::Options, 2_000);
+    assert_eq!(a.player_focus, PlayerFocus::Tracks(TrackKind::Audio));
+    a.handle_action(Action::Back, 2_000);
+    assert_eq!(a.player_focus, PlayerFocus::Video);
+    assert_eq!(a.router.current(), View::Player);
+    assert_eq!(*engine.stopped.lock().unwrap(), 0, "playback continues");
+
+    press(&mut a, &[Action::Options, Action::Options]);
+    assert_eq!(a.player_focus, PlayerFocus::Video, "View toggles the panel");
+    press(&mut a, &[Action::Options, Action::Select]);
+    assert_eq!(a.player_focus, PlayerFocus::Video, "A closes the panel");
+}
+
+#[test]
+fn the_tracks_panel_takes_every_player_action() {
+    let (mut a, engine) = playing_multitrack_movie("tracks_modal");
+    a.handle_action(Action::Options, 2_000);
+    a.handle_action(Action::Down, 2_000);
+    assert_eq!(a.player_focus, PlayerFocus::Tracks(TrackKind::Sub));
+    a.handle_action(Action::Up, 2_000);
+    assert_eq!(a.player_focus, PlayerFocus::Tracks(TrackKind::Audio));
+    press(
+        &mut a,
+        &[
+            Action::ChUp,
+            Action::Favorite,
+            Action::Epg,
+            Action::Digit(4),
+        ],
+    );
+    assert!(engine.seeks.lock().unwrap().is_empty(), "no seeking");
+    assert!(!a.playing_is_favorite(), "no favorite toggle");
+    assert_eq!(a.player_focus, PlayerFocus::Tracks(TrackKind::Audio));
+}
+
+#[test]
+fn a_panel_switch_lasts_for_this_stream_only() {
+    let (mut a, engine) = playing_multitrack_movie("tracks_audio");
+    a.settings.audio_lang = Some("en".into());
+    let before = a.settings.clone();
+    a.handle_action(Action::Options, 2_000);
+    a.handle_action(Action::Right, 2_000); // English -> German
+    assert_eq!(selected_id(&engine, TrackKind::Audio), Some(2));
+    assert!(
+        engine.seeks.lock().unwrap().is_empty(),
+        "Right does not seek"
+    );
+    press(&mut a, &[Action::Down, Action::Right]); // subtitles off -> English
+    assert_eq!(selected_id(&engine, TrackKind::Sub), Some(1));
+    assert_eq!(a.settings, before, "Settings keep their languages");
+
+    // The next stream starts with the Settings languages again.
+    press(&mut a, &[Action::Back, Action::Back]); // close panel, leave player
+    a.handle_action(Action::Select, 3_000); // Resume
+    assert_eq!(a.router.current(), View::Player);
+    let prefs = engine.prefs.lock().unwrap();
+    assert_eq!(prefs.last().unwrap().0.as_deref(), Some("en"));
+    assert_eq!(prefs.last().unwrap().1, SubtitlePref::Off);
+}
+
+#[test]
+fn the_panel_cycles_subtitles_through_off() {
+    let (mut a, engine) = playing_multitrack_movie("tracks_subs");
+    press(&mut a, &[Action::Options, Action::Down, Action::Right]); // off -> English
+    assert_eq!(selected_id(&engine, TrackKind::Sub), Some(1));
+    a.handle_action(Action::Right, 2_000); // -> French
+    assert_eq!(selected_id(&engine, TrackKind::Sub), Some(2));
+    a.handle_action(Action::Right, 2_000); // -> off
+    assert_eq!(selected_id(&engine, TrackKind::Sub), None);
+    a.handle_action(Action::Left, 2_000); // back to French
+    assert_eq!(selected_id(&engine, TrackKind::Sub), Some(2));
+}
+
+#[test]
+fn a_stream_without_tracks_changes_nothing() {
+    let (mut a, _, engine) = playing_movie("tracks_none");
+    press(
+        &mut a,
+        &[Action::Options, Action::Right, Action::Down, Action::Right],
+    );
+    assert!(engine.tracks.lock().unwrap().is_empty());
+    assert_eq!(a.player_focus, PlayerFocus::Tracks(TrackKind::Sub));
+}
+
+#[test]
+fn live_tracks_panel_blocks_zapping() {
+    let mut a = app("tracks_live");
+    let engine = MockEngine::default();
+    *engine.tracks.lock().unwrap() = movie_tracks();
+    a.engine = Some(Box::new(engine.clone()));
+    a.handle_action(Action::Select, 0);
+    let playing = a.player.channel_id.clone();
+    press(&mut a, &[Action::Options, Action::Up, Action::Digit(2)]);
+    assert_eq!(
+        a.player.channel_id, playing,
+        "Up changes the row, not the channel"
+    );
+    assert_eq!(a.zap.digits(), "", "digits are ignored");
+    assert_eq!(engine.loads.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn the_tracks_bar_control_opens_the_panel() {
+    let (mut a, _) = playing_multitrack_movie("tracks_bar");
+    let index = skjalf::app::bar_controls(true)
+        .iter()
+        .position(|control| *control == BarControl::Tracks)
+        .unwrap();
+    a.player_focus = PlayerFocus::Controls(index);
+    a.handle_action(Action::Select, 2_000);
+    assert_eq!(a.player_focus, PlayerFocus::Tracks(TrackKind::Audio));
+}
+
+/// Press and release at `pos`, one second after the last frame so that two
+/// taps never count as a double click.
+fn tap(ctx: &egui::Context, a: &mut App, pos: egui::Pos2) {
+    let size = egui::vec2(1280.0, 800.0);
+    let start = ctx.input(|i| i.time) + 1.0;
+    let frame = |a: &mut App, events, time: f64| {
+        ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)),
+                time: Some(time),
+                events,
+                ..Default::default()
+            },
+            |ctx| skjalf::views::player::show(ctx, a, 2_000),
+        )
+    };
+    let button = |pressed| egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: Default::default(),
+    };
+    let _ = frame(a, vec![egui::Event::PointerMoved(pos), button(true)], start);
+    let _ = frame(a, vec![button(false)], start + 0.05);
+}
+
+#[test]
+fn the_tracks_panel_draws_choices_and_answers_touch() {
+    let (mut a, engine) = playing_multitrack_movie("tracks_touch");
+    let ctx = egui::Context::default();
+    skjalf::theme::apply(&ctx);
+    let output = render_player(&ctx, &mut a, 2_000, egui::vec2(1280.0, 800.0));
+    let mut labels = Vec::new();
+    output
+        .shapes
+        .iter()
+        .for_each(|shape| shape_texts(&shape.shape, &mut labels));
+    assert!(
+        !labels.iter().any(|l| l == "Subtitles"),
+        "panel hidden: {labels:?}"
+    );
+
+    a.handle_action(Action::Options, 2_000);
+    let output = render_player(&ctx, &mut a, 2_000, egui::vec2(1280.0, 800.0));
+    let mut labels = Vec::new();
+    output
+        .shapes
+        .iter()
+        .for_each(|shape| shape_texts(&shape.shape, &mut labels));
+    for expected in [
+        "Audio",
+        "English \u{00b7} AC3 5.1  (1/3)",
+        "Subtitles",
+        "Off  (2 available)",
+    ] {
+        assert!(
+            labels.iter().any(|l| l == expected),
+            "missing {expected:?}: {labels:?}"
+        );
+    }
+
+    let next_sub = ctx
+        .read_response(skjalf::views::player::tracks_button_id(
+            TrackKind::Sub,
+            true,
+        ))
+        .unwrap()
+        .rect
+        .center();
+    tap(&ctx, &mut a, next_sub);
+    assert_eq!(
+        selected_id(&engine, TrackKind::Sub),
+        Some(1),
+        "tap switches"
+    );
+    assert_eq!(a.player_focus, PlayerFocus::Tracks(TrackKind::Sub));
+
+    tap(&ctx, &mut a, egui::pos2(640.0, 100.0)); // the video, above the panel
+    assert_eq!(
+        a.player_focus,
+        PlayerFocus::Video,
+        "a tap on the video closes it"
+    );
+}
+
+#[test]
+fn settings_set_the_languages_and_subtitles_for_every_stream() {
+    let mut a = settings_app("tracks_settings");
+    press(&mut a, &[Action::Down; 5]);
+    assert_eq!(a.settings_focus, SettingsFocus::AudioLanguage);
+    a.handle_action(Action::Right, 0);
+    assert_eq!(a.settings.audio_lang.as_deref(), Some("en"));
+    a.handle_action(Action::Select, 0); // A steps forward too
+    assert_eq!(a.settings.audio_lang.as_deref(), Some("de"));
+    press(&mut a, &[Action::Left, Action::Left]);
+    assert_eq!(a.settings.audio_lang, None, "back to the stream default");
+    a.handle_action(Action::Right, 0);
+
+    a.handle_action(Action::Down, 0);
+    assert_eq!(a.settings_focus, SettingsFocus::Subtitles);
+    assert!(!a.settings.subtitles_on, "subtitles start off");
+    a.handle_action(Action::Right, 0);
+    assert!(a.settings.subtitles_on);
+    a.handle_action(Action::Left, 0);
+    assert!(!a.settings.subtitles_on);
+    a.handle_action(Action::Select, 0);
+    assert!(a.settings.subtitles_on);
+
+    press(&mut a, &[Action::Down, Action::Down]);
+    assert_eq!(
+        a.settings_focus,
+        SettingsFocus::SubtitleLanguage,
+        "stays on the last row"
+    );
+    press(&mut a, &[Action::Right, Action::Right]);
+    assert_eq!(a.settings.subtitle_lang.as_deref(), Some("de"));
+
+    let saved = saved_settings(&a);
+    assert_eq!(saved.audio_lang.as_deref(), Some("en"));
+    assert!(saved.subtitles_on);
+    assert_eq!(saved.subtitle_lang.as_deref(), Some("de"));
+    assert_eq!(saved.subtitle_pref(), SubtitlePref::Lang("de".into()));
+    assert!(saved.source.is_some(), "saving keeps the source");
+
+    let (labels, _) = render_labels(&mut a, skjalf::views::settings::show);
+    for expected in [
+        "Audio Language: English",
+        "Subtitles: On",
+        "Subtitle Language: German",
+    ] {
+        assert!(
+            labels.iter().any(|l| l == expected),
+            "missing {expected:?}: {labels:?}"
+        );
+    }
 }

@@ -71,7 +71,11 @@ impl App {
         };
         if let Some(engine) = &mut self.engine {
             let started = engine
-                .load_at(url, start)
+                .set_track_prefs(
+                    self.settings.audio_lang.as_deref(),
+                    &self.settings.subtitle_pref(),
+                )
+                .and_then(|_| engine.load_at(url, start))
                 .and_then(|_| engine.pause(false))
                 .and_then(|_| engine.set_buffering(plan))
                 .and_then(|_| engine.set_volume(if self.muted { 0 } else { self.settings.volume }));

@@ -300,6 +300,24 @@ fn paint_icon(
             painter.add(bar(at(h), h, color));
         }
         BarControl::Favorite => paint_star(painter, center, h * 1.25, color, favorite),
+        BarControl::Tracks => {
+            let frame = Rect::from_center_size(center, Vec2::new(h * 2.4, h * 1.7));
+            painter.rect_stroke(
+                frame,
+                3.0,
+                Stroke::new(2.0_f32, color),
+                egui::StrokeKind::Inside,
+            );
+            for (y, from, to) in [(0.2, -0.75, 0.15), (0.2, 0.4, 0.75), (0.55, -0.75, 0.75)] {
+                painter.line_segment(
+                    [
+                        Pos2::new(center.x + h * from, center.y + h * y - h * 0.2),
+                        Pos2::new(center.x + h * to, center.y + h * y - h * 0.2),
+                    ],
+                    Stroke::new(2.0_f32, color),
+                );
+            }
+        }
         BarControl::Volume => {
             painter.add(Shape::rect_filled(
                 Rect::from_min_max(

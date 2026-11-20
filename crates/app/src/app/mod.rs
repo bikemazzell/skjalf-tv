@@ -15,6 +15,7 @@ use skjalf_core::model::{
 use skjalf_core::nav::{step_channel, OsdKind, PlayerModel, Router, View, ZapBuffer};
 use skjalf_core::progress::{MarkerIndex, Progress, ProgressEntry};
 use skjalf_core::store::Store;
+use skjalf_core::tracks::TrackKind;
 use skjalf_core::xtream::HttpFetcher;
 use skjalf_core::{m3u, template, xtream};
 
@@ -33,6 +34,7 @@ mod progress;
 mod refresh;
 mod series;
 mod settings;
+mod tracks;
 mod transport;
 
 pub use browser::ItemRow;
@@ -93,6 +95,8 @@ pub enum PlayerFocus {
     Controls(usize),
     /// The on-demand seek bar.
     Seek,
+    /// The audio and subtitle panel, with its focused row.
+    Tracks(TrackKind),
 }
 
 /// The whole app; one instance lives for the process lifetime.

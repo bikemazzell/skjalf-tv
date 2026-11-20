@@ -4,6 +4,7 @@ use skjalf_core::model::SourceKind;
 use skjalf_core::nav::View;
 
 use skjalf_core::catalog::format_unix_local;
+use skjalf_core::tracks::cycle_language_pref;
 
 use super::{App, LoadStatus, RefreshKind};
 use crate::input::Action;
@@ -17,16 +18,22 @@ pub enum SettingsFocus {
     RefreshInterval,
     StartBuffer,
     StallBuffer,
+    AudioLanguage,
+    Subtitles,
+    SubtitleLanguage,
 }
 
 impl SettingsFocus {
     /// Top-to-bottom order on the Settings screen.
-    pub const ALL: [SettingsFocus; 5] = [
+    pub const ALL: [SettingsFocus; 8] = [
         SettingsFocus::EditSource,
         SettingsFocus::RefreshContent,
         SettingsFocus::RefreshInterval,
         SettingsFocus::StartBuffer,
         SettingsFocus::StallBuffer,
+        SettingsFocus::AudioLanguage,
+        SettingsFocus::Subtitles,
+        SettingsFocus::SubtitleLanguage,
     ];
 
     fn step(self, down: bool) -> Self {
@@ -46,6 +53,9 @@ impl SettingsFocus {
             SettingsFocus::RefreshInterval
                 | SettingsFocus::StartBuffer
                 | SettingsFocus::StallBuffer
+                | SettingsFocus::AudioLanguage
+                | SettingsFocus::Subtitles
+                | SettingsFocus::SubtitleLanguage
         )
     }
 }
@@ -79,7 +89,10 @@ impl App {
             SettingsFocus::RefreshContent => self.refresh_content(),
             SettingsFocus::RefreshInterval
             | SettingsFocus::StartBuffer
-            | SettingsFocus::StallBuffer => self.cycle_setting(button, true),
+            | SettingsFocus::StallBuffer
+            | SettingsFocus::AudioLanguage
+            | SettingsFocus::Subtitles
+            | SettingsFocus::SubtitleLanguage => self.cycle_setting(button, true),
         }
     }
 
@@ -100,6 +113,15 @@ impl App {
                     self.settings.stall_buffer_secs,
                     forward,
                 )
+            }
+            SettingsFocus::AudioLanguage => {
+                self.settings.audio_lang =
+                    cycle_language_pref(self.settings.audio_lang.as_deref(), forward)
+            }
+            SettingsFocus::Subtitles => self.settings.subtitles_on = !self.settings.subtitles_on,
+            SettingsFocus::SubtitleLanguage => {
+                self.settings.subtitle_lang =
+                    cycle_language_pref(self.settings.subtitle_lang.as_deref(), forward)
             }
             SettingsFocus::EditSource | SettingsFocus::RefreshContent => return,
         }

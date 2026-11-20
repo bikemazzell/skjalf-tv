@@ -4,7 +4,8 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use rsmpv::render::OwnedRenderContext;
-use rsmpv::Mpv;
+use rsmpv::{Mpv, Node};
+use skjalf_core::tracks::{SubtitlePref, Track, TrackKind};
 
 /// Media commands the UI can issue to the player.
 pub trait PlayerEngine {
@@ -59,6 +60,23 @@ pub trait PlayerEngine {
     }
     /// End a buffering wait and play what is already buffered.
     fn start_now(&mut self) -> Result<(), PlayerError> {
+        Ok(())
+    }
+    /// Audio and subtitle tracks of the current file (empty when idle).
+    fn tracks(&self) -> Vec<Track> {
+        Vec::new()
+    }
+    /// Switch a track of the current file; `None` turns subtitles off.
+    fn select_track(&mut self, _kind: TrackKind, _id: Option<i64>) -> Result<(), PlayerError> {
+        Ok(())
+    }
+    /// Remembered languages that pick the tracks of every later file. Call
+    /// before `load_at`: it also undoes manual switches in the last file.
+    fn set_track_prefs(
+        &mut self,
+        _audio_lang: Option<&str>,
+        _subtitles: &SubtitlePref,
+    ) -> Result<(), PlayerError> {
         Ok(())
     }
 }
@@ -118,6 +136,9 @@ pub struct MpvEngine {
     stall_wait: f64,
     /// The stall wait to restore after "start now" ended a stall early.
     pending_stall_wait: Option<f64>,
+    /// After a track switch, the short wait lasts until playback passes
+    /// this position.
+    track_wait_after: Option<f64>,
 }
 
 /// Forward buffer limit when the cache lives on disk. In memory, mpv keeps
@@ -125,10 +146,12 @@ pub struct MpvEngine {
 const DISK_CACHE_LIMIT: &str = "4GiB";
 /// The wait that "start now" sets: play what is already buffered.
 const START_NOW_WAIT: f64 = 0.5;
+/// How far playback runs past a track switch before the stall wait returns.
+const TRACK_SWITCH_RUN: f64 = 1.0;
 /// mpv's own stall wait, used until a buffering plan arrives.
 const DEFAULT_STALL_WAIT: f64 = 1.0;
 
-const OBSERVED: [(&str, rsmpv::Format); 7] = [
+const OBSERVED: [(&str, rsmpv::Format); 8] = [
     ("time-pos", rsmpv::Format::Double),
     ("duration", rsmpv::Format::Double),
     ("demuxer-cache-duration", rsmpv::Format::Double),
@@ -136,6 +159,7 @@ const OBSERVED: [(&str, rsmpv::Format); 7] = [
     ("paused-for-cache", rsmpv::Format::Flag),
     ("core-idle", rsmpv::Format::Flag),
     ("eof-reached", rsmpv::Format::Flag),
+    ("track-list", rsmpv::Format::Node),
 ];
 
 /// Playback state from mpv's event queue, for the current file only.
@@ -154,6 +178,7 @@ struct Observed {
     ended_reported: bool,
     /// A seek is in flight; `eof` may still describe the old position.
     seeking: bool,
+    tracks: Vec<Track>,
     events: Vec<PlayerEvent>,
 }
 
@@ -170,6 +195,7 @@ impl Default for Observed {
             eof: false,
             ended_reported: false,
             seeking: false,
+            tracks: Vec::new(),
             events: Vec::new(),
         }
     }
@@ -215,6 +241,18 @@ impl Observed {
         }
     }
 
+    /// Playback runs past `position` and does not wait for the cache.
+    fn played_past(&self, position: f64) -> bool {
+        !self.paused_for_cache && self.position.is_some_and(|p| p > position)
+    }
+
+    /// Show a requested switch before mpv reports the new track list.
+    fn mark_selected(&mut self, kind: TrackKind, id: Option<i64>) {
+        for track in self.tracks.iter_mut().filter(|t| t.kind == kind) {
+            track.selected = Some(track.id) == id;
+        }
+    }
+
     fn observe(&mut self, name: &str, data: rsmpv::PropertyData) {
         let number = match data {
             rsmpv::PropertyData::Double(value) => Some(value),
@@ -234,6 +272,12 @@ impl Observed {
             "eof-reached" => {
                 self.eof = flag.unwrap_or(false);
                 self.seeking = false;
+            }
+            "track-list" => {
+                self.tracks = match &data {
+                    rsmpv::PropertyData::Node(list) => parse_track_list(list),
+                    _ => Vec::new(),
+                }
             }
             _ => {}
         }
@@ -275,6 +319,7 @@ impl MpvEngine {
             start_target: None,
             stall_wait: DEFAULT_STALL_WAIT,
             pending_stall_wait: None,
+            track_wait_after: None,
         })
     }
 
@@ -370,12 +415,30 @@ impl MpvEngine {
     /// Restore the stall wait once playback runs; `core-idle` is false
     /// only while video actually plays.
     fn apply_stall_wait(&mut self) -> Result<(), PlayerError> {
+        if self.track_wait_after.is_some() {
+            return Ok(()); // the track switch wait restores it
+        }
         let Some(wait) = self.pending_stall_wait else {
             return Ok(());
         };
         if !self.pump().core_idle {
             self.pending_stall_wait = None;
             self.set_async("cache-pause-wait", wait)?;
+        }
+        Ok(())
+    }
+}
+
+impl MpvEngine {
+    /// Restore the stall wait once playback runs past a track switch.
+    fn apply_track_wait(&mut self) -> Result<(), PlayerError> {
+        let Some(after) = self.track_wait_after else {
+            return Ok(());
+        };
+        if self.pump().played_past(after) {
+            self.track_wait_after = None;
+            self.pending_stall_wait = None;
+            self.set_async("cache-pause-wait", self.stall_wait)?;
         }
         Ok(())
     }
@@ -388,6 +451,7 @@ impl PlayerEngine for MpvEngine {
         self.pump().reset_for_load();
         self.start_target = None;
         self.pending_stall_wait = None;
+        self.track_wait_after = None;
         self.mpv.command(&["loadfile", url, "replace"])?;
         Ok(())
     }
@@ -414,6 +478,7 @@ impl PlayerEngine for MpvEngine {
     fn stop(&mut self) -> Result<(), PlayerError> {
         self.start_target = None;
         self.pending_stall_wait = None;
+        self.track_wait_after = None;
         self.mpv.command(&["stop"])?;
         self.pump().reset_for_load();
         Ok(())
@@ -453,6 +518,7 @@ impl PlayerEngine for MpvEngine {
         }
         if let Err(error) = self
             .apply_start_wait()
+            .and_then(|()| self.apply_track_wait())
             .and_then(|()| self.apply_stall_wait())
         {
             events.push(PlayerEvent::Failed(error.0));
@@ -480,6 +546,7 @@ impl PlayerEngine for MpvEngine {
         self.mpv.set_property("cache-pause-wait", plan.stall_secs)?;
         self.stall_wait = plan.stall_secs;
         self.pending_stall_wait = None;
+        self.track_wait_after = None;
         self.start_target = (plan.start_secs > 0.0).then_some(plan.start_secs);
         if self.start_target.is_some() {
             self.mpv.set_property("pause", true)?;
@@ -492,8 +559,63 @@ impl PlayerEngine for MpvEngine {
         Some(BufferStatus {
             waiting: self.start_target.is_some() || state.paused_for_cache,
             ahead_secs: state.ahead,
-            target_secs: self.start_target.unwrap_or(self.stall_wait),
+            target_secs: self
+                .start_target
+                .unwrap_or(if self.track_wait_after.is_some() {
+                    START_NOW_WAIT
+                } else {
+                    self.stall_wait
+                }),
         })
+    }
+
+    fn tracks(&self) -> Vec<Track> {
+        self.pump().tracks.clone()
+    }
+
+    fn select_track(&mut self, kind: TrackKind, id: Option<i64>) -> Result<(), PlayerError> {
+        let property = match kind {
+            TrackKind::Audio => "aid",
+            TrackKind::Sub => "sid",
+        };
+        match id {
+            Some(id) => self.set_async(property, id)?,
+            None => self.set_async(property, "no")?,
+        }
+        // A switch makes mpv read the stream again from the current
+        // position; play the refilled buffer at once, not after the full
+        // stall wait.
+        let position = {
+            let mut state = self.pump();
+            state.mark_selected(kind, id);
+            state.position
+        };
+        if let Some(position) = position {
+            self.set_async("cache-pause-wait", START_NOW_WAIT)?;
+            self.track_wait_after = Some(position + TRACK_SWITCH_RUN);
+        }
+        Ok(())
+    }
+
+    fn set_track_prefs(
+        &mut self,
+        audio_lang: Option<&str>,
+        subtitles: &SubtitlePref,
+    ) -> Result<(), PlayerError> {
+        // On without a language shows any subtitle track. With a language,
+        // a missing language shows none rather than another language.
+        let (slang, sid, fallback) = match subtitles {
+            SubtitlePref::Auto => ("", "auto", "yes"),
+            SubtitlePref::Off => ("", "no", "default"),
+            SubtitlePref::Lang(code) => (code.as_str(), "auto", "no"),
+        };
+        self.mpv
+            .set_property("alang", audio_lang.unwrap_or_default())?;
+        self.mpv.set_property("slang", slang)?;
+        self.mpv.set_property("subs-fallback", fallback)?;
+        self.mpv.set_property("aid", "auto")?;
+        self.mpv.set_property("sid", sid)?;
+        Ok(())
     }
 
     fn start_now(&mut self) -> Result<(), PlayerError> {
@@ -504,5 +626,208 @@ impl PlayerEngine for MpvEngine {
             self.pending_stall_wait = Some(self.stall_wait);
         }
         self.set_async("cache-pause-wait", START_NOW_WAIT)
+    }
+}
+
+/// Audio/subtitle entries of mpv's `track-list` (video and malformed
+/// entries skipped; the undetermined language `und` counts as none).
+pub fn parse_track_list(list: &Node) -> Vec<Track> {
+    let Node::Array(items) = list else {
+        return Vec::new();
+    };
+    items.iter().filter_map(parse_track).collect()
+}
+
+fn parse_track(item: &Node) -> Option<Track> {
+    let Node::Map(fields) = item else {
+        return None;
+    };
+    let get = |key: &str| fields.iter().find(|(k, _)| k == key).map(|(_, v)| v);
+    let text = |key: &str| match get(key) {
+        Some(Node::String(s)) if !s.is_empty() => Some(s.clone()),
+        _ => None,
+    };
+    let flag = |key: &str| matches!(get(key), Some(Node::Flag(true)));
+    let kind = match text("type")?.as_str() {
+        "audio" => TrackKind::Audio,
+        "sub" => TrackKind::Sub,
+        _ => return None,
+    };
+    let Some(Node::Int64(id)) = get("id") else {
+        return None;
+    };
+    let channels = match get("demux-channel-count") {
+        Some(Node::Int64(n)) => u32::try_from(*n).ok(),
+        _ => None,
+    };
+    Some(Track {
+        id: *id,
+        kind,
+        lang: text("lang").filter(|l| l != "und"),
+        title: text("title"),
+        codec: text("codec"),
+        channels,
+        selected: flag("selected"),
+        forced: flag("forced"),
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rsmpv::{Event, PropertyData};
+
+    fn entry(fields: &[(&str, Node)]) -> Node {
+        Node::Map(
+            fields
+                .iter()
+                .map(|(k, v)| ((*k).to_owned(), v.clone()))
+                .collect(),
+        )
+    }
+
+    fn s(v: &str) -> Node {
+        Node::String(v.into())
+    }
+
+    fn audio(id: i64, lang: &str, selected: bool) -> Node {
+        entry(&[
+            ("id", Node::Int64(id)),
+            ("type", s("audio")),
+            ("lang", s(lang)),
+            ("selected", Node::Flag(selected)),
+        ])
+    }
+
+    fn track_list_change(list: Node) -> Event {
+        Event::PropertyChange {
+            userdata: 0,
+            name: "track-list".into(),
+            data: PropertyData::Node(list),
+        }
+    }
+
+    #[test]
+    fn parses_audio_and_subtitle_tracks_and_skips_video() {
+        let list = Node::Array(vec![
+            entry(&[("id", Node::Int64(1)), ("type", s("video"))]),
+            entry(&[
+                ("id", Node::Int64(1)),
+                ("type", s("audio")),
+                ("lang", s("eng")),
+                ("title", s("Main")),
+                ("codec", s("ac3")),
+                ("demux-channel-count", Node::Int64(6)),
+                ("selected", Node::Flag(true)),
+            ]),
+            audio(2, "und", false),
+            entry(&[
+                ("id", Node::Int64(1)),
+                ("type", s("sub")),
+                ("lang", s("ger")),
+                ("forced", Node::Flag(true)),
+            ]),
+        ]);
+        let tracks = parse_track_list(&list);
+        assert_eq!(
+            tracks,
+            vec![
+                Track {
+                    id: 1,
+                    kind: TrackKind::Audio,
+                    lang: Some("eng".into()),
+                    title: Some("Main".into()),
+                    codec: Some("ac3".into()),
+                    channels: Some(6),
+                    selected: true,
+                    forced: false,
+                },
+                Track {
+                    id: 2,
+                    kind: TrackKind::Audio,
+                    lang: None, // "und" = undetermined
+                    title: None,
+                    codec: None,
+                    channels: None,
+                    selected: false,
+                    forced: false,
+                },
+                Track {
+                    id: 1,
+                    kind: TrackKind::Sub,
+                    lang: Some("ger".into()),
+                    title: None,
+                    codec: None,
+                    channels: None,
+                    selected: false,
+                    forced: true,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn malformed_track_list_yields_nothing_usable() {
+        assert!(parse_track_list(&Node::None).is_empty());
+        let list = Node::Array(vec![s("garbage"), entry(&[("type", s("audio"))])]);
+        assert!(parse_track_list(&list).is_empty());
+    }
+
+    #[test]
+    fn observed_tracks_follow_the_current_file_only() {
+        let mut state = Observed::default();
+        state.apply(track_list_change(Node::Array(vec![audio(1, "eng", true)])));
+        assert!(
+            state.tracks.is_empty(),
+            "changes before StartFile describe the old file"
+        );
+
+        state.apply(Event::StartFile {
+            playlist_entry_id: 1,
+        });
+        state.apply(track_list_change(Node::Array(vec![
+            audio(1, "eng", true),
+            audio(2, "ger", false),
+        ])));
+        assert_eq!(state.tracks.len(), 2);
+
+        state.reset_for_load();
+        assert!(state.tracks.is_empty(), "a new load forgets the old tracks");
+    }
+
+    #[test]
+    fn marking_a_selection_updates_observed_tracks_at_once() {
+        let mut state = Observed::default();
+        state.apply(Event::StartFile {
+            playlist_entry_id: 1,
+        });
+        state.apply(track_list_change(Node::Array(vec![
+            audio(1, "eng", true),
+            audio(2, "ger", false),
+        ])));
+        state.mark_selected(TrackKind::Audio, Some(2));
+        let selected: Vec<i64> = state
+            .tracks
+            .iter()
+            .filter(|t| t.selected)
+            .map(|t| t.id)
+            .collect();
+        assert_eq!(selected, vec![2]);
+    }
+
+    #[test]
+    fn the_short_track_switch_wait_ends_once_playback_runs_past_the_switch() {
+        let mut state = Observed {
+            position: Some(30.0),
+            ..Observed::default()
+        };
+        assert!(!state.played_past(31.0), "not yet past the switch point");
+        state.position = Some(31.5);
+        state.paused_for_cache = true;
+        assert!(!state.played_past(31.0), "still refilling");
+        state.paused_for_cache = false;
+        assert!(state.played_past(31.0));
+        state.position = None;
+        assert!(!state.played_past(31.0), "no position, no decision");
     }
 }

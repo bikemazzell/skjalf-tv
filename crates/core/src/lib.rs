@@ -12,4 +12,5 @@ pub mod nav;
 pub mod progress;
 pub mod store;
 pub mod template;
+pub mod tracks;
 pub mod xtream;

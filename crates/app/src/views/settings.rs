@@ -2,6 +2,7 @@
 
 use egui::{Button, RichText};
 use skjalf_core::model::wait_label;
+use skjalf_core::tracks::language_pref_label;
 
 use crate::app::{App, SettingsFocus};
 
@@ -34,6 +35,22 @@ pub fn show(ctx: &egui::Context, app: &mut App) {
                 SettingsFocus::StallBuffer => format!(
                     "Buffer After a Stall: {}",
                     wait_label(app.settings.stall_buffer_secs)
+                ),
+                SettingsFocus::AudioLanguage => format!(
+                    "Audio Language: {}",
+                    language_pref_label(app.settings.audio_lang.as_deref())
+                ),
+                SettingsFocus::Subtitles => format!(
+                    "Subtitles: {}",
+                    if app.settings.subtitles_on {
+                        "On"
+                    } else {
+                        "Off"
+                    }
+                ),
+                SettingsFocus::SubtitleLanguage => format!(
+                    "Subtitle Language: {}",
+                    language_pref_label(app.settings.subtitle_lang.as_deref())
                 ),
             };
             let selected = app.settings_focus == button;

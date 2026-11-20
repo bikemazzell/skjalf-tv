@@ -1,6 +1,7 @@
 //! Core data model — sources, groups, channels, EPG, favorites, settings.
 
 use crate::browse::SortMode;
+use crate::tracks::SubtitlePref;
 use chrono::{NaiveDate, NaiveDateTime};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
@@ -160,6 +161,14 @@ pub struct Settings {
     /// Seconds of video to buffer before playback resumes after a stall.
     #[serde(default = "default_stall_buffer_secs")]
     pub stall_buffer_secs: u32,
+    /// Preferred audio language (canonical code); None = stream default.
+    #[serde(default)]
+    pub audio_lang: Option<String>,
+    #[serde(default)]
+    pub subtitles_on: bool,
+    /// Preferred subtitle language while subtitles are on; None = stream default.
+    #[serde(default)]
+    pub subtitle_lang: Option<String>,
 }
 
 fn default_stall_buffer_secs() -> u32 {
@@ -302,11 +311,23 @@ impl Default for Settings {
             last_refresh: Default::default(),
             start_buffer_secs: 0,
             stall_buffer_secs: default_stall_buffer_secs(),
+            audio_lang: None,
+            subtitles_on: false,
+            subtitle_lang: None,
         }
     }
 }
 
 impl Settings {
+    /// The subtitle choice that every new stream starts with.
+    pub fn subtitle_pref(&self) -> SubtitlePref {
+        match (&self.subtitle_lang, self.subtitles_on) {
+            (_, false) => SubtitlePref::Off,
+            (None, true) => SubtitlePref::Auto,
+            (Some(code), true) => SubtitlePref::Lang(code.clone()),
+        }
+    }
+
     pub fn set_volume(&mut self, volume: u8) {
         self.volume = volume.min(100);
     }

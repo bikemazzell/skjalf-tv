@@ -77,6 +77,9 @@ fn settings_roundtrip() {
         .into(),
         start_buffer_secs: 600,
         stall_buffer_secs: 30,
+        audio_lang: Some("de".into()),
+        subtitles_on: true,
+        subtitle_lang: Some("en".into()),
     };
     store.save_settings(&s).unwrap();
     assert!(
@@ -86,6 +89,56 @@ fn settings_roundtrip() {
     s.volume = 100;
     store.save_settings(&s).unwrap();
     assert_eq!(store.load_settings().unwrap(), s);
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[test]
+fn settings_from_before_language_preferences_keep_their_source() {
+    let dir = tempdir();
+    let store = Store::open(&dir).unwrap();
+    let old = Settings {
+        volume: 42,
+        source: Some(pl().source),
+        audio_lang: Some("en".into()),
+        subtitles_on: true,
+        subtitle_lang: Some("de".into()),
+        ..Default::default()
+    };
+    // Drop the new keys to reproduce a file written by an older build, and
+    // add the key that an unreleased test build wrote.
+    let body: String = toml::to_string(&old)
+        .unwrap()
+        .lines()
+        .filter(|l| !l.starts_with("subtitle") && !l.starts_with("audio_lang"))
+        .map(|l| format!("{l}\n"))
+        .collect();
+    assert!(!body.contains("subtitle"));
+    let body = format!("subtitles = \"auto\"\n{body}");
+    std::fs::write(dir.join("settings.toml"), body).unwrap();
+
+    let loaded = store.load_settings().unwrap();
+    assert_eq!(loaded.volume, 42);
+    assert_eq!(loaded.source, old.source, "credentials survive the upgrade");
+    assert_eq!(loaded.audio_lang, None);
+    assert!(!loaded.subtitles_on);
+    assert_eq!(loaded.subtitle_lang, None);
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[test]
+fn a_subtitles_table_from_a_test_build_is_ignored() {
+    let dir = tempdir();
+    let store = Store::open(&dir).unwrap();
+    let saved = Settings {
+        source: Some(pl().source),
+        audio_lang: Some("en".into()),
+        ..Default::default()
+    };
+    let body = toml::to_string(&saved).unwrap() + "\n[subtitles]\nlang = \"th\"\n";
+    std::fs::write(dir.join("settings.toml"), body).unwrap();
+
+    let loaded = store.load_settings().unwrap();
+    assert_eq!(loaded, saved, "the source and languages survive");
     std::fs::remove_dir_all(dir).ok();
 }
 
