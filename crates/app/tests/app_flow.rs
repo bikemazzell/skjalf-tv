@@ -44,6 +44,8 @@ struct MockEngine {
     /// Track preferences per call, with the number of loads made before it.
     prefs: Arc<Mutex<Vec<PrefsCall>>>,
     user_agents: Arc<Mutex<Vec<String>>>,
+    /// Subtitle positions sent to the engine, in percent of the screen.
+    sub_positions: Arc<Mutex<Vec<u8>>>,
 }
 
 impl PlayerEngine for MockEngine {
@@ -93,6 +95,10 @@ impl PlayerEngine for MockEngine {
     }
     fn tracks(&self) -> Vec<Track> {
         self.tracks.lock().unwrap().clone()
+    }
+    fn set_subtitle_position(&mut self, percent: u8) -> Result<(), PlayerError> {
+        self.sub_positions.lock().unwrap().push(percent);
+        Ok(())
     }
     fn set_user_agent(&mut self, user_agent: &str) -> Result<(), PlayerError> {
         self.user_agents.lock().unwrap().push(user_agent.to_owned());
@@ -7631,5 +7637,44 @@ fn continue_tiles_get_their_posters_once_the_catalog_loads() {
         continue_art(&b).as_deref(),
         Some("https://img.example/b.png"),
         "the poster arrives with the catalog"
+    );
+}
+
+// -- Subtitles stay above the player overlays -----------------------------------------
+
+#[test]
+fn subtitles_move_above_the_overlays_and_back() {
+    let (mut a, engine) = playing_multitrack_movie("subs_above_bar");
+    let ctx = egui::Context::default();
+    skjalf::theme::apply(&ctx);
+    let size = egui::vec2(1280.0, 800.0);
+    let last = |engine: &MockEngine| *engine.sub_positions.lock().unwrap().last().unwrap();
+
+    a.player.show_osd(OsdKind::Info, 2_000);
+    render_player(&ctx, &mut a, 2_000, size);
+    let with_bar = last(&engine);
+    assert!(
+        (60..=90).contains(&with_bar),
+        "above the bar, not at the bottom: {with_bar}"
+    );
+
+    a.handle_action(Action::Options, 2_000);
+    render_player(&ctx, &mut a, 2_000, size);
+    let with_panel = last(&engine);
+    assert!(
+        with_panel < with_bar,
+        "above the panel too: {with_panel} < {with_bar}"
+    );
+
+    a.handle_action(Action::Back, 2_000);
+    render_player(&ctx, &mut a, 60_000, size); // overlays timed out
+    assert_eq!(last(&engine), 100, "back at the bottom");
+
+    let sent = engine.sub_positions.lock().unwrap().len();
+    render_player(&ctx, &mut a, 61_000, size);
+    assert_eq!(
+        engine.sub_positions.lock().unwrap().len(),
+        sent,
+        "an unchanged position is not sent again"
     );
 }

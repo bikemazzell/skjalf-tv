@@ -23,6 +23,26 @@ impl App {
         }
     }
 
+    /// Keep subtitles above the highest bottom overlay (`overlay_top`, in
+    /// points from the top), or at the bottom when no overlay shows.
+    pub fn keep_subtitles_above(&mut self, overlay_top: Option<f32>, screen_height: f32) {
+        let position = match overlay_top {
+            Some(top) if screen_height > 0.0 => {
+                ((top / screen_height * 100.0).floor() as i32 - SUBTITLE_GAP).clamp(50, 100) as u8
+            }
+            _ => 100,
+        };
+        if position == self.sub_position {
+            return;
+        }
+        self.sub_position = position;
+        if let Some(engine) = &mut self.engine {
+            if let Err(error) = engine.set_subtitle_position(position) {
+                self.notice = Some(format!("Subtitle position error: {error}"));
+            }
+        }
+    }
+
     /// Tracks of the playing file, as last reported by the engine.
     pub fn tracks(&self) -> Vec<Track> {
         self.engine
@@ -46,6 +66,9 @@ impl App {
         }
     }
 }
+
+/// Space between subtitles and the overlay above them, in percent.
+const SUBTITLE_GAP: i32 = 2;
 
 fn other_row(row: TrackKind) -> TrackKind {
     match row {

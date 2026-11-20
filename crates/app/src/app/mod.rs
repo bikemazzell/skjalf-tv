@@ -193,6 +193,8 @@ pub struct App {
     /// Frame capture for items without art; `None` turns it off.
     pub frame_capturer: Option<Arc<dyn crate::player::FrameCapturer>>,
     frame_job: Option<frames::FrameJob>,
+    /// Subtitle position last sent to the engine (percent; 100 = bottom).
+    sub_position: u8,
     /// Frame keys tried this session, so a failure is not retried.
     frames_tried: std::collections::HashSet<String>,
     /// Background playlist fetch (setup connect).
@@ -241,6 +243,7 @@ impl App {
             art: crate::art::ArtLoader::new(fetcher.clone(), dir.join("art-cache")),
             frame_capturer: None,
             frame_job: None,
+            sub_position: 100,
             frames_tried: Default::default(),
             fetcher,
             settings,

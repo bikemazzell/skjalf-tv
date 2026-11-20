@@ -64,6 +64,10 @@ pub trait PlayerEngine {
     fn start_now(&mut self) -> Result<(), PlayerError> {
         Ok(())
     }
+    /// Vertical subtitle position in percent of the screen; 100 is the bottom.
+    fn set_subtitle_position(&mut self, _percent: u8) -> Result<(), PlayerError> {
+        Ok(())
+    }
     /// The User-Agent for stream requests from the next load on.
     fn set_user_agent(&mut self, _user_agent: &str) -> Result<(), PlayerError> {
         Ok(())
@@ -580,6 +584,10 @@ impl PlayerEngine for MpvEngine {
     fn set_user_agent(&mut self, user_agent: &str) -> Result<(), PlayerError> {
         self.mpv.set_property("user-agent", user_agent)?;
         Ok(())
+    }
+
+    fn set_subtitle_position(&mut self, percent: u8) -> Result<(), PlayerError> {
+        self.set_async("sub-pos", i64::from(percent))
     }
 
     fn tracks(&self) -> Vec<Track> {

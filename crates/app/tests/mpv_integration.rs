@@ -689,3 +689,11 @@ fn a_frame_capture_returns_one_jpeg_from_inside_the_file() {
         )
         .is_err());
 }
+
+#[test]
+#[ignore]
+fn the_subtitle_position_reaches_mpv() {
+    let mut e = MpvEngine::headless().unwrap();
+    e.set_subtitle_position(80).unwrap();
+    assert!(poll_until(&mut e, |e| property::<i64>(e, "sub-pos") == 80));
+}

@@ -77,8 +77,12 @@ pub fn show(ctx: &egui::Context, app: &mut App, now_ms: u64) {
             app.player.show_osd(OsdKind::Info, now_ms);
         }
     }
+    // Bottom overlays drawn this frame; subtitles move above the highest.
+    let mut overlays = Vec::new();
     if let PlayerFocus::Tracks(row) = app.player_focus {
-        if let Some((kind, forward)) = tracks_panel(ctx, &app.tracks(), row) {
+        let (tapped, rect) = tracks_panel(ctx, &app.tracks(), row);
+        overlays.push(rect);
+        if let Some((kind, forward)) = tapped {
             app.switch_track(kind, forward);
         }
     }
@@ -121,7 +125,7 @@ pub fn show(ctx: &egui::Context, app: &mut App, now_ms: u64) {
     }
 
     if visible && kind == OsdKind::Epg && !app.is_on_demand() {
-        egui::Area::new("program_list".into())
+        let list = egui::Area::new("program_list".into())
             .order(egui::Order::Foreground)
             .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -96.0))
             .show(ctx, |ui| {
@@ -145,6 +149,7 @@ pub fn show(ctx: &egui::Context, app: &mut App, now_ms: u64) {
                         }
                     });
             });
+        overlays.push(list.response.rect);
     }
 
     if visible {
@@ -208,18 +213,21 @@ pub fn show(ctx: &egui::Context, app: &mut App, now_ms: u64) {
     }
 
     if visible || video_tapped || app.paused || app.player_focus != PlayerFocus::Video {
-        super::transport_bar::show(ctx, app, now_ms);
+        overlays.push(super::transport_bar::show(ctx, app, now_ms));
     }
+    let top = overlays.iter().map(|rect| rect.top()).reduce(f32::min);
+    app.keep_subtitles_above(top, ctx.content_rect().height());
 }
 
-/// Audio and subtitle rows with step buttons; returns a tapped step.
+/// Audio and subtitle rows with step buttons; returns a tapped step and the
+/// panel's screen rectangle.
 fn tracks_panel(
     ctx: &egui::Context,
     tracks: &[Track],
     focus: TrackKind,
-) -> Option<(TrackKind, bool)> {
+) -> (Option<(TrackKind, bool)>, egui::Rect) {
     let mut tapped = None;
-    egui::Area::new("tracks_panel".into())
+    let area = egui::Area::new("tracks_panel".into())
         .order(egui::Order::Foreground)
         .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -150.0))
         .show(ctx, |ui| {
@@ -273,7 +281,7 @@ fn tracks_panel(
                     );
                 });
         });
-    tapped
+    (tapped, area.response.rect)
 }
 
 /// The current choice for one kind, e.g. `German · AC3 5.1  (2/3)`.

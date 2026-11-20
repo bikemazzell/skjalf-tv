@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Fixed: the transport bar, the audio and subtitle panel, and the program list no longer hide subtitles. Subtitles move above them while they show.
+
 ## 0.2.0 - 2026-11-19
 
 - Posters and covers on the movie and series details screens and on the Main rows, and channel logos in Live TV and the player.

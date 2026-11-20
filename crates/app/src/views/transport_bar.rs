@@ -25,10 +25,11 @@ pub fn seek_bar_id() -> egui::Id {
     egui::Id::new("transport-seek-bar")
 }
 
-pub fn show(ctx: &egui::Context, app: &mut App, now_ms: u64) {
+/// Draw the bar; returns its screen rectangle.
+pub fn show(ctx: &egui::Context, app: &mut App, now_ms: u64) -> egui::Rect {
     let on_demand = app.is_on_demand();
     let width = (ctx.content_rect().width() - 24.0).max(280.0);
-    egui::Area::new("player_controls".into())
+    let area = egui::Area::new("player_controls".into())
         .order(egui::Order::Foreground)
         .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -12.0))
         .show(ctx, |ui| {
@@ -51,6 +52,7 @@ pub fn show(ctx: &egui::Context, app: &mut App, now_ms: u64) {
                     button_row(ui, app, now_ms);
                 });
         });
+    area.response.rect
 }
 
 fn fraction(position: Option<f64>, duration: Option<f64>) -> f32 {
