@@ -254,5 +254,51 @@ class UninstallTests(unittest.TestCase):
         self.assertTrue(self.dest.exists())
 
 
+
+def release_notes(version, changelog=None):
+    args = ['sh', str(ROOT / 'packaging/release-notes.sh'), version]
+    if changelog:
+        args.append(str(changelog))
+    return subprocess.run(args, capture_output=True, text=True)
+
+
+class ReleaseNotesTests(unittest.TestCase):
+    CHANGELOG = """# Changelog
+
+## 0.2.0 - 2026-01-02
+
+- Added the new thing.
+
+## 0.1.0 - 2026-01-01
+
+- First release.
+"""
+
+    def test_notes_hold_only_the_versions_changes_and_the_install_line(self):
+        with tempfile.TemporaryDirectory() as directory:
+            changelog = Path(directory) / 'CHANGELOG.md'
+            changelog.write_text(self.CHANGELOG)
+            result = release_notes('0.2.0', changelog)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn('- Added the new thing.', result.stdout)
+            self.assertNotIn('First release', result.stdout)
+            self.assertNotIn('## ', result.stdout)
+            self.assertIn('releases/latest/download/install.sh | sh', result.stdout)
+            self.assertIn('SHA256SUMS', result.stdout)
+
+    def test_a_version_without_changes_stops_the_release(self):
+        with tempfile.TemporaryDirectory() as directory:
+            changelog = Path(directory) / 'CHANGELOG.md'
+            changelog.write_text(self.CHANGELOG)
+            result = release_notes('0.3.0', changelog)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('0.3.0', result.stderr)
+            self.assertEqual(result.stdout, '')
+
+    def test_the_workspace_version_has_a_changelog_entry(self):
+        result = release_notes(WORKSPACE_VERSION)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+
 if __name__ == '__main__':
     unittest.main()

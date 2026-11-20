@@ -60,7 +60,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          printf 'Skjalf TV %s\n\nInstall on a Steam Deck in Desktop Mode:\n\n    curl -fsSL https://github.com/bikemazzell/skjalf-tv/releases/latest/download/install.sh | sh\n\nVerify downloads against SHA256SUMS.\n' "$VERSION" > notes.md
+          ./packaging/release-notes.sh "$VERSION" > notes.md
           gh release create "$GITHUB_REF_NAME" \
             dist/skjalf-tv-x86_64.tar.gz dist/install.sh dist/uninstall.sh dist/SHA256SUMS \
             --title "Skjalf TV $VERSION" --notes-file notes.md
