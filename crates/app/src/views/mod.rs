@@ -16,6 +16,25 @@ pub mod transport_bar;
 
 /// Touch Back button: top-left, outside the controller focus order, and
 /// equal to pressing B.
+/// The details art in a right-hand panel; nothing until the art is ready.
+/// Draw it before the central panel.
+pub fn poster_panel(ctx: &egui::Context, app: &mut crate::app::App, key: Option<String>) {
+    let Some(texture) = key.and_then(|key| app.art.texture(ctx, &key)) else {
+        return;
+    };
+    let width = (ctx.content_rect().width() * 0.28).clamp(160.0, 360.0);
+    egui::SidePanel::right("details_poster")
+        .resizable(false)
+        .exact_width(width)
+        .show(ctx, |ui| {
+            ui.add_space(12.0);
+            let art = texture.size_vec2();
+            let room = egui::vec2(ui.available_width(), ui.available_height() - 12.0);
+            let scale = (room.x / art.x.max(1.0)).min(room.y / art.y.max(1.0));
+            ui.add(egui::Image::new((texture.id(), art * scale)));
+        });
+}
+
 pub fn back_button(ui: &mut egui::Ui, app: &mut crate::app::App) {
     if ui
         .add_sized(

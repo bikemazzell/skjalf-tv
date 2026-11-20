@@ -22,7 +22,44 @@ pub struct FrameJob {
     result: Receiver<Result<Vec<u8>, String>>,
 }
 
+/// Cache key of the captured frame for a movie or series.
+pub(super) fn frame_key(kind: &str, id: &str) -> String {
+    format!("frame://{kind}/{id}")
+}
+
 impl App {
+    /// `url` while it can load, else the item's captured frame.
+    pub(super) fn art_or_frame(&self, url: Option<&String>, frame: String) -> String {
+        match url {
+            Some(url) if self.art.state(url) != ArtState::Failed => url.clone(),
+            _ => frame,
+        }
+    }
+
+    pub fn movie_details_art(&self) -> Option<String> {
+        let details = self.movie_details.as_ref()?;
+        let poster = match &details.info {
+            DetailInfo::Ready(info) => info.poster.as_ref(),
+            _ => None,
+        }
+        .or(details.movie.icon.as_ref());
+        Some(self.art_or_frame(poster, frame_key("movie", &details.movie.id)))
+    }
+
+    pub fn series_details_art(&self) -> Option<String> {
+        let details = self.series_details.as_ref()?;
+        Some(self.art_or_frame(
+            details.series.cover.as_ref(),
+            frame_key("series", &details.series.id),
+        ))
+    }
+
+    /// Logo URL of the live channel that plays.
+    pub fn playing_channel_logo(&self) -> Option<String> {
+        let id = self.player.channel_id.as_ref()?;
+        self.playlist.as_ref()?.find(id)?.logo.clone()
+    }
+
     pub fn art_is_cached(&self, key: &str) -> bool {
         self.art.is_cached(key)
     }
@@ -111,7 +148,7 @@ impl App {
                     return None;
                 }
                 let url = xtream::movie_url(source, &details.movie).ok()?;
-                Some((format!("frame://movie/{}", details.movie.id), url))
+                Some((frame_key("movie", &details.movie.id), url))
             }
             View::SeriesDetails => {
                 let details = self.series_details.as_ref()?;
@@ -123,7 +160,7 @@ impl App {
                 };
                 let episode = info.seasons.first()?.episodes.first()?;
                 let url = xtream::episode_url(source, episode).ok()?;
-                Some((format!("frame://series/{}", details.series.id), url))
+                Some((frame_key("series", &details.series.id), url))
             }
             _ => None,
         }

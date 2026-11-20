@@ -75,12 +75,19 @@ pub fn show(ctx: &egui::Context, app: &mut App) {
                                     app.main_row_tiles(row).into_iter().enumerate()
                                 {
                                     let is_selected = focused_row && position == selected;
+                                    let art = tile
+                                        .art
+                                        .as_deref()
+                                        .and_then(|key| app.art.texture(ui.ctx(), key));
                                     let response = super::marked_row::show_with_detail(
                                         ui,
                                         egui::vec2(TILE_WIDTH, TILE_HEIGHT),
-                                        &tile.title,
-                                        tile.detail.as_deref(),
-                                        tile.marker,
+                                        super::marked_row::RowContent {
+                                            text: &tile.title,
+                                            detail: tile.detail.as_deref(),
+                                            marker: tile.marker,
+                                            art: art.as_ref(),
+                                        },
                                         is_selected,
                                         1,
                                     );

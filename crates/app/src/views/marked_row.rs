@@ -8,6 +8,23 @@ use skjalf_core::progress::{format_left, Marker};
 const DIM: f32 = 0.55;
 const PILL_PADDING: Vec2 = Vec2::new(10.0, 3.0);
 const BAR_HEIGHT: f32 = 3.0;
+/// Space around art inside a row, and between art and text.
+const ART_INSET: f32 = 4.0;
+const ART_GAP: f32 = 10.0;
+/// Wide art (channel logos) is at most this many row heights wide.
+const ART_MAX_ASPECT: f32 = 1.6;
+
+/// Art fitted into the row's height at its left edge, keeping its shape.
+fn art_rect(row: Rect, art: Vec2) -> Rect {
+    let height = row.height() - 2.0 * ART_INSET;
+    let bounds = Vec2::new(height * ART_MAX_ASPECT, height);
+    let scale = (bounds.x / art.x.max(1.0)).min(bounds.y / art.y.max(1.0));
+    let size = art * scale;
+    Rect::from_min_size(
+        Pos2::new(row.min.x + ART_INSET, row.center().y - size.y / 2.0),
+        size,
+    )
+}
 
 fn pill_label(marker: Marker) -> Option<String> {
     match marker {
@@ -30,19 +47,43 @@ pub fn show(
     selected: bool,
     max_rows: usize,
 ) -> Response {
-    show_with_detail(ui, size, text, None, marker, selected, max_rows)
+    show_with_detail(
+        ui,
+        size,
+        RowContent {
+            text,
+            detail: None,
+            marker,
+            art: None,
+        },
+        selected,
+        max_rows,
+    )
 }
 
-/// Like [`show`], with an optional second line under a one-line title.
+/// What a row shows: a title, an optional second line, a marker, and
+/// optional art (poster or logo) at the left.
+pub struct RowContent<'a> {
+    pub text: &'a str,
+    pub detail: Option<&'a str>,
+    pub marker: Marker,
+    pub art: Option<&'a egui::TextureHandle>,
+}
+
+/// Like [`show`], for full [`RowContent`].
 pub fn show_with_detail(
     ui: &mut egui::Ui,
     size: Vec2,
-    text: &str,
-    detail: Option<&str>,
-    marker: Marker,
+    content: RowContent<'_>,
     selected: bool,
     max_rows: usize,
 ) -> Response {
+    let RowContent {
+        text,
+        detail,
+        marker,
+        art,
+    } = content;
     let (rect, response) = ui.allocate_exact_size(size, Sense::click());
     response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, text));
     let painter = ui.painter_at(rect);
@@ -54,6 +95,20 @@ pub fn show_with_detail(
         Color32::from_gray(38)
     };
     painter.rect_filled(rect, 4.0, background);
+    let text_x = match art {
+        Some(texture) => {
+            let art_rect = art_rect(rect, texture.size_vec2());
+            painter.image(
+                texture.id(),
+                art_rect,
+                Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
+                Color32::WHITE,
+            );
+            art_rect.max.x + ART_GAP
+        }
+        None => rect.min.x + 12.0,
+    };
+    let text_left = text_x - rect.min.x;
 
     let pill = pill_label(marker).map(|label| {
         let galley = painter.layout_no_wrap(label, FontId::proportional(14.0), Color32::WHITE);
@@ -80,7 +135,7 @@ pub fn show_with_detail(
         text.to_owned(),
         egui::TextStyle::Button.resolve(ui.style()),
         text_color,
-        (rect.width() - 24.0 - reserved).max(40.0),
+        (rect.width() - text_left - 12.0 - reserved).max(40.0),
     );
     job.wrap.max_rows = max_rows;
     job.wrap.break_anywhere = true;
@@ -90,7 +145,7 @@ pub fn show_with_detail(
             detail.to_owned(),
             FontId::proportional(14.0),
             text_color.gamma_multiply(0.8),
-            (rect.width() - 24.0).max(40.0),
+            (rect.width() - text_left - 12.0).max(40.0),
         );
         job.wrap.max_rows = 1;
         job.wrap.break_anywhere = true;
@@ -100,12 +155,12 @@ pub fn show_with_detail(
     let top = rect.center().y - total / 2.0;
     if let Some(detail_galley) = detail_galley {
         painter.galley(
-            Pos2::new(rect.min.x + 12.0, top + galley.size().y),
+            Pos2::new(text_x, top + galley.size().y),
             detail_galley,
             text_color,
         );
     }
-    painter.galley(Pos2::new(rect.min.x + 12.0, top), galley, text_color);
+    painter.galley(Pos2::new(text_x, top), galley, text_color);
 
     if let Some((label, pill_rect)) = pill {
         let fill = match (selected, marker) {

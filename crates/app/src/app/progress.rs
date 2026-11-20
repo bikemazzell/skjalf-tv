@@ -127,6 +127,37 @@ impl App {
     pub(super) fn refresh_continue_items(&mut self) {
         self.rebuild_continue_items();
         self.continue_titles = self.continue_items.iter().map(continue_title).collect();
+        // Built here, not per frame: a lookup by id scans the whole catalog.
+        self.continue_art = self
+            .continue_items
+            .iter()
+            .map(|entry| match (entry.kind, entry.series_id.as_deref()) {
+                (ProgressKind::Episode, Some(series_id)) => (
+                    self.series_slot.loaded.as_ref().and_then(|loaded| {
+                        loaded
+                            .data
+                            .series
+                            .iter()
+                            .find(|series| series.id == series_id)?
+                            .cover
+                            .clone()
+                    }),
+                    super::frames::frame_key("series", series_id),
+                ),
+                _ => (
+                    self.movie_slot.loaded.as_ref().and_then(|loaded| {
+                        loaded
+                            .data
+                            .movies
+                            .iter()
+                            .find(|movie| movie.id == entry.id)?
+                            .icon
+                            .clone()
+                    }),
+                    super::frames::frame_key("movie", &entry.id),
+                ),
+            })
+            .collect();
     }
 
     fn rebuild_continue_items(&mut self) {

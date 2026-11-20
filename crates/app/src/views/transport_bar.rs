@@ -126,8 +126,17 @@ fn seek_row(ui: &mut egui::Ui, app: &mut App, now_ms: u64) {
 }
 
 /// Channel name and, when known, the program on now.
-fn live_title_row(ui: &mut egui::Ui, app: &App) {
+fn live_title_row(ui: &mut egui::Ui, app: &mut App) {
+    let logo = app
+        .playing_channel_logo()
+        .and_then(|key| app.art.texture(ui.ctx(), &key));
     ui.horizontal(|ui| {
+        if let Some(logo) = logo {
+            let height = ui.text_style_height(&egui::TextStyle::Body) * 1.4;
+            let size = logo.size_vec2();
+            let width = (height * size.x / size.y.max(1.0)).min(height * 2.0);
+            ui.add(egui::Image::new((logo.id(), egui::vec2(width, height))));
+        }
         ui.add(
             egui::Label::new(egui::RichText::new(visual_text(&app.now_playing_title())).strong())
                 .truncate(),

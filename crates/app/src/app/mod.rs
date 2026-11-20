@@ -139,6 +139,8 @@ pub struct App {
     pub continue_items: Vec<ProgressEntry>,
     /// Continue Watching tile titles as drawn, rebuilt with the items.
     pub continue_titles: Vec<String>,
+    /// Continue Watching art: poster or cover URL, and the frame key.
+    continue_art: Vec<(Option<String>, String)>,
     /// Watched and in-progress markers, rebuilt when progress changes.
     pub markers: MarkerIndex,
     /// Unix seconds; injectable for tests.
@@ -269,6 +271,7 @@ impl App {
             progress: Progress::default(),
             continue_items: Vec::new(),
             continue_titles: Vec::new(),
+            continue_art: Vec::new(),
             markers: MarkerIndex::default(),
             clock: Arc::new(unix_now),
             auto_refresh: false,

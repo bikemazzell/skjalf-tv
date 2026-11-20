@@ -22,6 +22,8 @@ pub fn show(ctx: &egui::Context, app: &mut App, now_ms: u64) {
         .map(|details| (details.season, details.episode));
     let jump = selection.is_some() && app.last_episode_sel != selection;
     app.last_episode_sel = selection;
+    let art = app.series_details_art();
+    super::poster_panel(ctx, app, art);
 
     egui::TopBottomPanel::top("series_header").show(ctx, |ui| {
         super::back_button(ui, app);

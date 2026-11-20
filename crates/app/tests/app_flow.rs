@@ -2203,7 +2203,7 @@ fn touch_sort_button_toggles_the_mode() {
 const VOD_CATEGORIES: &str = r#"[{"category_id":"12","category_name":"Action","parent_id":0},{"category_id":"13","category_name":"Drama","parent_id":0}]"#;
 const VOD_STREAMS: &str = r#"[
     {"name":"Movie A","stream_id":1001,"rating":"7.2","added":"100","category_id":"12","container_extension":"mkv"},
-    {"name":"Movie B","stream_id":"1002","rating":"","added":300,"category_id":"13","container_extension":"mp4"},
+    {"name":"Movie B","stream_id":"1002","rating":"","added":300,"category_id":"13","container_extension":"mp4","stream_icon":"https://img.example/b.png"},
     {"name":"Movie C","stream_id":1003,"category_id":"12"},
     {"name":"Other D","stream_id":1004,"added":"200","category_id":"13","container_extension":"avi"}
 ]"#;
@@ -7472,4 +7472,134 @@ fn play_and_back_cancel_a_running_capture() {
         capturer.cancelled.load(Ordering::SeqCst),
         "leaving the screen cancels it"
     );
+}
+
+// -- Artwork on screen ----------------------------------------------------------------
+
+fn png_bytes() -> Vec<u8> {
+    let image = image::RgbaImage::from_pixel(20, 30, image::Rgba([10, 120, 200, 255]));
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    image.write_to(&mut bytes, image::ImageFormat::Png).unwrap();
+    bytes.into_inner()
+}
+
+/// Count shapes that draw a texture other than the font atlas: meshes from
+/// `painter.image` and texture-brushed rects from the `Image` widget.
+fn textured_meshes(shape: &egui::Shape, count: &mut usize) {
+    match shape {
+        egui::Shape::Mesh(mesh) if mesh.texture_id != egui::TextureId::default() => *count += 1,
+        egui::Shape::Rect(rect)
+            if rect
+                .brush
+                .as_ref()
+                .is_some_and(|brush| brush.fill_texture_id != egui::TextureId::default()) =>
+        {
+            *count += 1
+        }
+        egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| textured_meshes(s, count)),
+        _ => {}
+    }
+}
+
+/// Render `show` until an image appears (the loader works in the background).
+fn draws_an_image(a: &mut App, show: impl Fn(&egui::Context, &mut App)) -> bool {
+    let ctx = egui::Context::default();
+    skjalf::theme::apply(&ctx);
+    for _ in 0..200 {
+        let output = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1280.0, 800.0),
+                )),
+                ..Default::default()
+            },
+            |ctx| {
+                a.art.poll(ctx);
+                show(ctx, a)
+            },
+        );
+        let mut count = 0;
+        output
+            .shapes
+            .iter()
+            .for_each(|shape| textured_meshes(&shape.shape, &mut count));
+        if count > 0 {
+            return true;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    false
+}
+
+#[test]
+fn latest_movie_tiles_show_their_posters() {
+    let (mut a, _, _) = movies_app("art_tiles");
+    a.activate_main_button(MainButton::Movies);
+    wait_for(&mut a, |a| a.movie_slot.loaded.is_some());
+    a.router.reset(View::Main);
+    let tiles = a.main_row_tiles(skjalf::app::MainRow::LatestMovies);
+    assert_eq!(tiles[0].art.as_deref(), Some("https://img.example/b.png"));
+    assert_eq!(
+        tiles[1].art.as_deref(),
+        Some("frame://movie/1004"),
+        "no poster: a frame key"
+    );
+    assert!(
+        !draws_an_image(&mut a, skjalf::views::main_menu::show),
+        "nothing cached yet"
+    );
+    a.art.insert("https://img.example/b.png", &png_bytes());
+    assert!(draws_an_image(&mut a, skjalf::views::main_menu::show));
+}
+
+#[test]
+fn movie_details_show_the_poster_or_a_captured_frame() {
+    let (mut a, _, _) = movies_app("art_details");
+    a.art.insert("https://img.example/b.png", &png_bytes());
+    open_movies(&mut a);
+    all_movies(&mut a);
+    a.handle_action(Action::Down, 0); // Movie B
+    a.handle_action(Action::Select, 0);
+    assert_eq!(
+        a.movie_details_art().as_deref(),
+        Some("https://img.example/b.png")
+    );
+    assert!(draws_an_image(&mut a, |ctx, a| {
+        skjalf::views::movie_details::show(ctx, a, 0)
+    }));
+
+    a.handle_action(Action::Back, 0);
+    a.handle_action(Action::Up, 0); // Movie A, no poster
+    a.handle_action(Action::Select, 0);
+    assert_eq!(a.movie_details_art().as_deref(), Some("frame://movie/1001"));
+    a.art.insert("frame://movie/1001", &png_bytes());
+    assert!(draws_an_image(&mut a, |ctx, a| {
+        skjalf::views::movie_details::show(ctx, a, 0)
+    }));
+}
+
+#[test]
+fn live_rows_show_channel_logos() {
+    let mut a = app("art_logos");
+    let logo = "https://img.example/news1.png";
+    a.playlist.as_mut().unwrap().channels[0].logo = Some(logo.into());
+    a.refresh_browser(BrowserId::Live);
+    assert!(!draws_an_image(&mut a, skjalf::views::live::show));
+    a.art.insert(logo, &png_bytes());
+    assert!(draws_an_image(&mut a, skjalf::views::live::show));
+}
+
+#[test]
+fn the_live_player_bar_shows_the_channel_logo() {
+    let mut a = app("art_player_logo");
+    let logo = "https://img.example/news1.png";
+    a.playlist.as_mut().unwrap().channels[0].logo = Some(logo.into());
+    a.engine = Some(Box::new(MockEngine::default()));
+    a.handle_action(Action::Select, 0); // play News 1, the bar shows
+    a.art.insert(logo, &png_bytes());
+    assert!(draws_an_image(
+        &mut a,
+        |ctx, a| skjalf::views::player::show(ctx, a, 0)
+    ));
 }

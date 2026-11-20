@@ -6,6 +6,8 @@ use skjalf_core::catalog::{format_duration, format_rating};
 use crate::app::{App, DetailInfo};
 
 pub fn show(ctx: &egui::Context, app: &mut App, now_ms: u64) {
+    let art = app.movie_details_art();
+    super::poster_panel(ctx, app, art);
     let mut activated = None;
     egui::CentralPanel::default().show(ctx, |ui| {
         super::back_button(ui, app);

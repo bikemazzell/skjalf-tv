@@ -37,6 +37,8 @@ pub struct ItemRow {
     pub label: String,
     pub favorite: bool,
     pub marker: Marker,
+    /// Art key (channel logo); lists of movies and series show none.
+    pub art: Option<String>,
 }
 
 /// Row suffix for a real rating; zero and empty ratings add nothing.
@@ -284,6 +286,7 @@ impl App {
                     ),
                     favorite: favorite(&ContentKey::new(ContentKind::Live, &channel.id)),
                     marker: Marker::None,
+                    art: channel.logo.clone(),
                 })
             }
             BrowserId::Movies => {
@@ -299,6 +302,7 @@ impl App {
                     ),
                     favorite: favorite(&ContentKey::new(ContentKind::Movie, &movie.id)),
                     marker: self.markers.movie(&movie.id),
+                    art: None,
                 })
             }
             BrowserId::Series => {
@@ -314,6 +318,7 @@ impl App {
                     ),
                     favorite: favorite(&ContentKey::new(ContentKind::Series, &series.id)),
                     marker: self.markers.series(&series.id),
+                    art: None,
                 })
             }
         }

@@ -81,6 +81,8 @@ pub struct RowTile {
     pub title: String,
     pub detail: Option<String>,
     pub marker: Marker,
+    /// Art key: a poster URL or a captured frame.
+    pub art: Option<String>,
 }
 
 impl App {
@@ -127,6 +129,10 @@ impl App {
                         .unwrap_or_default(),
                     detail: None,
                     marker: entry.marker(),
+                    art: self
+                        .continue_art
+                        .get(position)
+                        .map(|(url, frame)| self.art_or_frame(url.as_ref(), frame.clone())),
                 })
                 .collect(),
             MainRow::LatestMovies => self
@@ -142,6 +148,10 @@ impl App {
                             title: loaded.index.display_name(item, &movie.name).to_owned(),
                             detail: rating_detail(movie.rating.as_deref()),
                             marker: self.markers.movie(&movie.id),
+                            art: Some(self.art_or_frame(
+                                movie.icon.as_ref(),
+                                super::frames::frame_key("movie", &movie.id),
+                            )),
                         })
                         .collect()
                 })
@@ -159,6 +169,10 @@ impl App {
                             title: loaded.index.display_name(item, &series.name).to_owned(),
                             detail: rating_detail(series.rating.as_deref()),
                             marker: self.markers.series(&series.id),
+                            art: Some(self.art_or_frame(
+                                series.cover.as_ref(),
+                                super::frames::frame_key("series", &series.id),
+                            )),
                         })
                         .collect()
                 })

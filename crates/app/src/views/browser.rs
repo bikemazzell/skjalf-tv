@@ -193,11 +193,20 @@ fn items(ui: &mut egui::Ui, app: &mut App, id: BrowserId, jump: bool) {
             let focused =
                 app.state(id).selected == position && app.state(id).focus == BrowserFocus::Items;
             let star = if row.favorite { "  \u{2605}" } else { "" };
-            let resp = super::marked_row::show(
+            let art = row
+                .art
+                .as_deref()
+                .and_then(|key| app.art.texture(ui.ctx(), key));
+            let label = format!("{}{star}", row.label);
+            let resp = super::marked_row::show_with_detail(
                 ui,
                 egui::vec2(ui.available_width(), crate::theme::MIN_HIT),
-                &format!("{}{star}", row.label),
-                row.marker,
+                super::marked_row::RowContent {
+                    text: &label,
+                    detail: None,
+                    marker: row.marker,
+                    art: art.as_ref(),
+                },
                 focused,
                 1,
             );
