@@ -2,151 +2,58 @@
 
 # Skjalf TV
 
-Skjalf TV is an IPTV player for the Steam Deck and Linux desktops. It plays live TV, movies, and series from an Xtream Codes provider or an M3U playlist. You control it with the Deck's buttons, a touch screen, or a keyboard. The app is written in Rust with egui and libmpv.
+An IPTV player for the Steam Deck and Linux. It plays live TV, movies, and series from your Xtream Codes account or M3U playlist, with the Deck's buttons, touch, or a keyboard.
 
-The name comes from Hliðskjálf, the high seat from which Odin watches all nine worlds.
-
-Skjalf TV contains no channels or content. You need your own IPTV subscription or playlist.
+Skjalf TV includes no channels. You need your own IPTV subscription or playlist.
 
 <a href="https://alternativeto.net/software/skjalf-tv/about/?utm_source=badge&utm_medium=referral"><img src="https://alternativeto.net/static/badges/badge-compact-color.svg" alt="Skjalf TV | AlternativeTo" width="171" height="55"></a>
 
-![The main screen with posters in Continue Watching, Latest Movies, and Latest Series](docs/screenshots/home.png)
+![The main screen with Continue Watching, Latest Movies, and Latest Series](docs/screenshots/home.png)
 
-| Live TV with channel logos | The live player with program information |
-|---|---|
-| ![Live TV channel list with logos](docs/screenshots/live-tv.png) | ![Live player with the channel logo and the transport bar](docs/screenshots/player.png) |
-| **Movie details with the poster** | **Audio and subtitle choice in the player** |
-| ![Movie details screen with a poster](docs/screenshots/details.png) | ![The audio and subtitle panel over a playing movie](docs/screenshots/tracks.png) |
-
-The screenshots show the app at the Deck's resolution of 1280x800, connected to a test server with made-up titles and generated artwork.
-
-## Features
-
-- Live TV with channel groups, search, name sort, favorites, channel numbers, and channel zapping.
-- A movie and series library that stays fast with catalogs of more than 180,000 titles.
-- Details screens with posters, ratings, genres, plot, seasons, and episodes.
-- Posters on the Main rows and channel logos in Live TV. A movie or series without a poster shows a frame from the video.
-- Resume where you stopped. Main shows a Continue Watching row and the latest movies and series.
-- Watched and in-progress markers in every list.
-- Favorite channels, movies, series, and whole groups. Favorite groups appear at the top of the group list.
-- A group filter. For example, type "SI|" to show only the Slovenian groups.
-- A standard transport bar: play, pause, seek, previous and next channel, volume, favorite, and audio and subtitle tracks.
-- Audio and subtitle selection. Set your audio language and subtitles once in Settings, and every stream tries them. Change the tracks of one stream in the player.
-- In Game Mode, the Steam on-screen keyboard opens automatically for text fields.
-- Correct right-to-left text for Arabic and Persian titles, and emoji in channel and group names.
-- Buffering for slow connections. A movie or episode can wait until up to 30 minutes of video is buffered, and playback can wait again after a stall.
-- Automatic refresh of the provider data. The default interval is 24 hours.
-- Scaling for the Deck screen (1280x800) and for a TV at 1920x1080.
-
-[CHANGELOG.md](CHANGELOG.md) lists the changes in each release.
-
-## Controls
-
-| Steam Deck | Keyboard | Action |
+| Live TV | Player | Audio and subtitles |
 |---|---|---|
-| D-pad or left stick | Arrow keys | Move the focus |
-| A | Enter | Open or select |
-| B | Esc or Backspace | Go back |
-| X | E | Search in a list. Show program information in the live player. |
-| Y | F | Add or remove a favorite |
-| L1 and R1 | Page Up and Page Down | Move one page in a list. Change the channel in the live player. |
-| Number keys | Digits | Go to a channel number in Live TV |
-| View | O | Open or close the audio and subtitle panel in the player |
-
-A hint line at the bottom of every list shows the buttons for the focused control.
-
-In the live player, Up and Down change the channel and Left and Right change the volume. Press Down to move the focus into the transport bar.
-
-In the movie and episode player, A pauses and resumes playback. Left and Right seek 10 seconds, and L1 and R1 seek 60 seconds.
-
-### Audio and subtitles
-
-Open Settings to set the languages for every stream:
-
-- Audio Language: the audio track to play. "Stream default" plays the track that the provider marks as the default.
-- Subtitles: On or Off. Subtitles are off until you turn them on.
-- Subtitle Language: the subtitles to show while Subtitles is On. "Stream default" shows the provider's default subtitle track, or the first one.
-
-Each stream tries these languages. If a stream does not have your audio language, it plays its default audio. If it does not have your subtitle language, it shows no subtitles.
-
-To change the tracks of the stream that plays now, press View, or select the subtitle icon at the right end of the transport bar. In the panel, Up and Down choose Audio or Subtitles, and Left and Right change the track. B closes the panel. The change lasts until the stream ends. The next stream uses the languages from Settings again.
-
-To type a search, press X. Type with the Steam keyboard, then press Enter or B to finish.
+| ![Live TV channel list](docs/screenshots/live-tv.png) | ![Live player with the transport bar](docs/screenshots/player.png) | ![The audio and subtitle panel](docs/screenshots/tracks.png) |
 
 ## Install on a Steam Deck
 
 1. Hold the power button and select Switch to Desktop.
-2. Open Konsole from the application menu.
-3. Run this command:
+2. Open Konsole and run:
 
    ```sh
    curl -fsSL https://github.com/bikemazzell/skjalf-tv/releases/latest/download/install.sh | sh
    ```
 
-4. Select Return to Gaming Mode on the desktop. Skjalf TV is in the library under Non-Steam.
+3. Select Return to Gaming Mode. Skjalf TV is in your library under Non-Steam.
+4. Start it, choose Xtream Codes or M3U, and enter your provider details.
 
-The installer downloads the latest release and checks its SHA-256 checksum. If Steam is open, the installer closes it first, because Steam overwrites shortcut changes that it does not expect. The installer then downloads the pinned SteamOS playback libraries from Valve's package server and checks each hash. It puts the app in `~/.local/share/skjalf`, adds a menu entry, and adds a Steam shortcut with an icon and library artwork. It backs up `shortcuts.vdf` before it changes it, and it never changes other shortcuts.
+To update, run the same command again. To uninstall, use `uninstall.sh` in place of `install.sh`. Add `-s -- --purge` after `sh` to also delete your settings and saved login.
 
-To update Skjalf TV, run the same command again. Your settings, favorites, and watch progress stay.
+## Features
 
-To read the script before you run it, download it first:
+- Live TV with groups, search, favorites, and channel numbers.
+- Movies and series with posters, details, and resume. It stays fast with more than 180,000 titles.
+- Audio and subtitle languages set once in Settings, and a panel to switch tracks while you watch.
+- Buffering settings for slow connections.
 
-```sh
-curl -fsSLO https://github.com/bikemazzell/skjalf-tv/releases/latest/download/install.sh
-less install.sh
-sh install.sh
-```
+## Good to know
 
-### Uninstall
+- The installer closes Steam for a moment to add its shortcut. It checks the hash of every download.
+- On a TV, set "Game resolution" to Native in the shortcut's properties, and start the app after you connect the TV.
+- If your provider refuses the app, set User Agent in Settings to a player name that your provider accepts.
+- If video keeps stopping to buffer, raise the two buffer settings in Settings.
+- A title without a poster shows a frame from its video. Capturing it uses one provider connection for a few seconds, and only when one is free.
 
-In Desktop Mode, run:
+## Controls
 
-```sh
-curl -fsSL https://github.com/bikemazzell/skjalf-tv/releases/latest/download/uninstall.sh | sh
-```
-
-The uninstaller removes the app, its menu entry, and its Steam shortcut and artwork. It keeps your settings in `~/.config/skjalf`. To remove those too, including your saved provider credentials, add `-s -- --purge` after `sh`.
-
-### Install from source
-
-Build `skjalf` as described in "Build", copy the source tree and the binary to the Deck, close Steam, and run:
-
-```sh
-packaging/install-steamos.sh /absolute/path/to/skjalf
-```
-
-To reuse downloaded packages, set `SKJALF_PACKAGE_CACHE` to the directory that holds them. To use your own libmpv build, set `SKJALF_MPV_LIB_DIR` to a directory that contains `libmpv.so.2`. The installer then skips the download.
-
-### Play on a TV
-
-When the Deck is docked to a TV, open the Skjalf TV properties in Steam and set "Game resolution" to Native. Start the app after you connect the TV. If you do not, the app renders at 1280x800 and Steam enlarges the picture.
-
-## First start
-
-1. Choose Xtream Codes or M3U.
-2. Enter the server, user name, and password, or the playlist URL.
-3. Select Connect.
-
-To change the source later, open Settings and select Edit Source. Settings also has Refresh Content and the refresh interval: Off, 6 hours, 12 hours, 24 hours, 48 hours, or 7 days.
-
-The User Agent row sets the name that the app sends with each request to your provider. The default is `SkjalfTV/` and the version number. Some providers serve only known players. If yours refuses the app, select User Agent and type the name of a player that your provider accepts. Clear the field to return to the default.
-
-### Posters and captured frames
-
-The app shows the posters, covers, and logos that your provider lists, and keeps them in `~/.cache/skjalf/art` (or `$XDG_CACHE_HOME/skjalf/art`), up to 300 MiB. When the cache is full, the images that were used least recently go first.
-
-When a movie or series has no poster, its details screen captures one frame from about 10% into the video and keeps it in the same cache. A capture opens the stream, so it uses one of your provider's connections for a few seconds. The app captures only while nothing plays, only when your account has a free connection, and at most once per title. Play or Back cancels a capture.
-
-### Slow connections
-
-If video stops often to buffer, open Settings and change these values:
-
-- Buffer Before Playback: a movie or episode waits until this much video is buffered. The choices are Off, 1, 2, 5, 10, 20, or 30 minutes. Live TV does not wait, because a live stream arrives in real time.
-- Buffer After a Stall: when playback stops to buffer, it continues after this much video is buffered. The choices are from 1 second to 10 minutes. This setting applies to live TV too.
-
-While playback waits, the screen shows the progress. Press A to start playback at once with the video that is already buffered. The transport bar shows how much video is buffered ahead.
-
-The buffer is a temporary file in `~/.cache/skjalf` (or `$XDG_CACHE_HOME/skjalf`), up to 4 GiB. The player deletes the file name as soon as it opens the file, so the space is free again when playback ends.
+| Steam Deck | Keyboard | Action |
+|---|---|---|
+| D-pad | Arrow keys | Move |
+| A | Enter | Select |
+| B | Esc | Back |
+| X | E | Search, or program information in the player |
+| Y | F | Favorite |
+| L1 and R1 | Page Up and Page Down | Page through lists, or change the channel |
+| View | O | Audio and subtitles in the player |
 
 ## Privacy
 
@@ -167,7 +74,7 @@ export PKG_CONFIG_PATH="$MPV_LIBRARY_DIR/pkgconfig"
 cargo build --release -p skjalf
 ```
 
-The binary is `target/release/skjalf`.
+The binary is `target/release/skjalf`. To install it on a Deck, copy the source tree and the binary there, close Steam, and run `packaging/install-steamos.sh /absolute/path/to/skjalf`.
 
 ## Tests
 
@@ -191,22 +98,10 @@ Without `SKJALF_TEST_NETWORK=1`, the test that downloads the SteamOS runtime is 
 
 Tests never start the real Steam client. To check this, put a fake `steam` script that logs its arguments first on `PATH`. Then run the tests and make sure that the log is empty.
 
-## Project layout
+## Credits
 
-| Path | Contents |
-|---|---|
-| `crates/core` | Logic without a display: provider parsing, catalogs, search, favorites, progress, and storage |
-| `crates/app` | The egui app: views, input, the libmpv player, and the Steam keyboard |
-| `packaging` | The SteamOS installer, runtime lock file, Steam shortcut writer, icons, and their tests |
-| `.github/workflows` | Continuous integration and the release build |
-| `docs/screenshots` | The screenshots in this README |
-
-## Icons and artwork
-
-The icon shows a TV whose antenna is the rune Algiz (ᛉ), with Odin's all-seeing eye on the screen. The SVG sources are in `packaging/icons`. To render the PNG files again, run `packaging/icons/render.sh`. It needs `rsvg-convert` and the Ubuntu font.
-
-The app includes the Noto Emoji font (version 3.002) in `crates/app/assets/fonts`. It is under the SIL Open Font License; see `NotoEmoji-OFL.txt` in the same directory.
+The icon shows a TV whose antenna is the rune Algiz, with Odin's eye on the screen. The name comes from Hliðskjálf, Odin's high seat. The app includes the Noto Emoji font under the SIL Open Font License (`crates/app/assets/fonts/NotoEmoji-OFL.txt`).
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE). [CHANGELOG.md](CHANGELOG.md) lists the changes in each release.
