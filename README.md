@@ -191,16 +191,6 @@ Without `SKJALF_TEST_NETWORK=1`, the test that downloads the SteamOS runtime is 
 
 Tests never start the real Steam client. To check this, put a fake `steam` script that logs its arguments first on `PATH`. Then run the tests and make sure that the log is empty.
 
-### Screenshots
-
-The README screenshots come from a fake Xtream server with made-up titles and generated artwork. To take them again, build the release binary and run:
-
-```sh
-scripts/screenshots/shoot.sh
-```
-
-The script runs the app on an invisible Xvfb display, so no window opens on the desktop, and writes the images to `docs/screenshots`. It needs Xvfb, xdotool, ImageMagick, pngquant, ffmpeg, Python with Pillow, the DejaVu fonts, and libmpv. Its scratch files go to `target/screenshots`. If the app does not reach the expected screen, the script stops and leaves the old images in place.
-
 ## Project layout
 
 | Path | Contents |
@@ -208,7 +198,6 @@ The script runs the app on an invisible Xvfb display, so no window opens on the 
 | `crates/core` | Logic without a display: provider parsing, catalogs, search, favorites, progress, and storage |
 | `crates/app` | The egui app: views, input, the libmpv player, and the Steam keyboard |
 | `packaging` | The SteamOS installer, runtime lock file, Steam shortcut writer, icons, and their tests |
-| `scripts` | The libmpv download for development, and the screenshot kit |
 | `.github/workflows` | Continuous integration and the release build |
 | `docs/screenshots` | The screenshots in this README |
 
