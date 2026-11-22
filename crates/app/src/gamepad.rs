@@ -273,7 +273,9 @@ impl IgnoredDevices {
     fn new(ignore: Option<&str>, except: Option<&str>) -> Self {
         Self {
             ignore: ignore.map(parse_device_list).unwrap_or_default(),
-            except: except.map(parse_device_list),
+            except: except
+                .map(parse_device_list)
+                .filter(|except| !except.is_empty()),
         }
     }
 
@@ -880,5 +882,6 @@ mod tests {
         let ignored = IgnoredDevices::new(None, None);
         assert!(!ignored.contains(0x045e, 0x02e0));
         assert!(!IgnoredDevices::default().contains(0x28de, 0x11ff));
+        assert!(!IgnoredDevices::new(None, Some("")).contains(0x28de, 0x11ff));
     }
 }
