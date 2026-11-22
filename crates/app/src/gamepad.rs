@@ -246,6 +246,58 @@ pub fn is_gamepad(supported_keys: &[u16]) -> bool {
     supported_keys.contains(&BTN_SOUTH)
 }
 
+fn parse_device_list(list: &str) -> HashSet<(u16, u16)> {
+    let hex = |part: &str| {
+        let part = part.trim();
+        let number = part
+            .strip_prefix("0x")
+            .or_else(|| part.strip_prefix("0X"))?;
+        u16::from_str_radix(number, 16).ok()
+    };
+    list.split(',')
+        .filter_map(|entry| {
+            let (vendor, product) = entry.split_once('/')?;
+            Some((hex(vendor)?, hex(product)?))
+        })
+        .collect()
+}
+
+/// Devices Steam already wraps in a virtual pad, as SDL decides it.
+#[derive(Default)]
+struct IgnoredDevices {
+    ignore: HashSet<(u16, u16)>,
+    except: Option<HashSet<(u16, u16)>>,
+}
+
+impl IgnoredDevices {
+    fn new(ignore: Option<&str>, except: Option<&str>) -> Self {
+        Self {
+            ignore: ignore.map(parse_device_list).unwrap_or_default(),
+            except: except.map(parse_device_list),
+        }
+    }
+
+    fn from_env() -> Self {
+        Self::new(
+            std::env::var("SDL_GAMECONTROLLER_IGNORE_DEVICES")
+                .ok()
+                .as_deref(),
+            std::env::var("SDL_GAMECONTROLLER_IGNORE_DEVICES_EXCEPT")
+                .ok()
+                .as_deref(),
+        )
+    }
+
+    fn contains(&self, vendor: u16, product: u16) -> bool {
+        let id = (vendor, product);
+        self.ignore.contains(&id)
+            || self
+                .except
+                .as_ref()
+                .is_some_and(|except| !except.contains(&id))
+    }
+}
+
 /// Picks one controller at a time from several devices that may mirror each
 /// other (Steam Input's virtual pad duplicates the raw device it wraps).
 #[derive(Default)]
@@ -302,8 +354,16 @@ impl GamepadThread {
         let reader_focus = focused.clone();
         let reader_repeat = repeat_enabled.clone();
         let reader_reset = reset_generation.clone();
+        let ignored = IgnoredDevices::from_env();
         std::thread::spawn(move || {
-            discover_loop(tx, monitor_alive, reader_focus, reader_repeat, reader_reset);
+            discover_loop(
+                tx,
+                monitor_alive,
+                reader_focus,
+                reader_repeat,
+                reader_reset,
+                ignored,
+            );
         });
         Some(Self {
             rx,
@@ -365,6 +425,7 @@ fn discover_loop(
     focused: Arc<AtomicBool>,
     repeat_enabled: Arc<AtomicBool>,
     reset_generation: Arc<AtomicU64>,
+    ignored: IgnoredDevices,
 ) {
     let (done_tx, done_rx) = mpsc::channel();
     let mut active: HashSet<PathBuf> = HashSet::new();
@@ -390,7 +451,8 @@ fn discover_loop(
                         .supported_keys()
                         .map(|keys| keys.iter().map(|key| key.0).collect())
                         .unwrap_or_default();
-                    is_gamepad(&keys)
+                    let id = device.input_id();
+                    is_gamepad(&keys) && !ignored.contains(id.vendor(), id.product())
                 })
                 .collect();
             for (path, device) in unclaimed(gamepads, &active) {
@@ -768,5 +830,55 @@ mod tests {
             ]
         );
         assert!(unclaimed(Vec::<(PathBuf, ())>::new(), &active).is_empty());
+    }
+
+    const DECK_SAMPLE: &str = "0x2808/0x1015,0x28de/0x1002,0x28de/0x1205,0x045e/0x02e0,";
+
+    #[test]
+    fn device_list_parses_the_steam_sample_with_trailing_comma() {
+        let parsed = parse_device_list(DECK_SAMPLE);
+        assert_eq!(parsed.len(), 4);
+        assert!(parsed.contains(&(0x045e, 0x02e0)));
+        assert!(parsed.contains(&(0x28de, 0x1205)));
+        assert!(!parsed.contains(&(0x28de, 0x11ff)));
+    }
+
+    #[test]
+    fn device_list_tolerates_case_whitespace_and_malformed_entries() {
+        let parsed = parse_device_list(
+            " 0X045E/0X02E0 , 0x28DE/0x11FF,,junk,0x1/,/0x2,0x12345/0x1,0x1/0xzz,0x1234 ",
+        );
+        assert_eq!(parsed, HashSet::from([(0x045e, 0x02e0), (0x28de, 0x11ff)]));
+        assert!(parse_device_list("").is_empty());
+    }
+
+    #[test]
+    fn ignore_list_alone_ignores_only_listed_devices() {
+        let ignored = IgnoredDevices::new(Some(DECK_SAMPLE), None);
+        assert!(ignored.contains(0x045e, 0x02e0));
+        assert!(!ignored.contains(0x28de, 0x11ff));
+    }
+
+    #[test]
+    fn except_list_alone_ignores_every_unlisted_device() {
+        let ignored = IgnoredDevices::new(None, Some("0x28de/0x11ff"));
+        assert!(!ignored.contains(0x28de, 0x11ff));
+        assert!(ignored.contains(0x045e, 0x02e0));
+    }
+
+    #[test]
+    fn ignore_list_wins_over_except_list() {
+        let ignored =
+            IgnoredDevices::new(Some("0x045e/0x02e0"), Some("0x045e/0x02e0,0x28de/0x11ff"));
+        assert!(ignored.contains(0x045e, 0x02e0));
+        assert!(!ignored.contains(0x28de, 0x11ff));
+        assert!(ignored.contains(0x1234, 0x5678));
+    }
+
+    #[test]
+    fn unset_lists_ignore_nothing() {
+        let ignored = IgnoredDevices::new(None, None);
+        assert!(!ignored.contains(0x045e, 0x02e0));
+        assert!(!IgnoredDevices::default().contains(0x28de, 0x11ff));
     }
 }
