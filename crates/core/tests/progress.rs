@@ -1,6 +1,6 @@
 //! Resume rules, Continue Watching order, and persistence.
 
-use skjalf_core::progress::{Progress, ProgressEntry, ProgressKind};
+use skjalf_core::progress::{Progress, ProgressEntry, ProgressKind, Recent, MAX_VISITS_PER_SOURCE};
 use skjalf_core::store::Store;
 
 fn entry(id: &str, position: f64, duration: Option<f64>, updated_at: i64) -> ProgressEntry {
@@ -309,4 +309,134 @@ fn a_short_replay_keeps_the_watched_mark_until_thirty_seconds() {
             .unwrap()
             .finished
     );
+}
+
+fn episode_at(series: &str, id: &str, updated_at: i64) -> ProgressEntry {
+    let mut entry = episode(series, id, 100.0, false);
+    entry.updated_at = updated_at;
+    entry
+}
+
+fn labels(items: &[Recent]) -> Vec<String> {
+    items
+        .iter()
+        .map(|item| match item {
+            Recent::Entry(entry) => format!("{:?}:{}", entry.kind, entry.id),
+            Recent::Channel(visit) => format!("channel:{}", visit.channel_id),
+        })
+        .collect()
+}
+
+#[test]
+fn recently_watched_merges_entries_and_channels_newest_first() {
+    let mut progress = Progress::default();
+    progress.record(entry("m1", 100.0, Some(5400.0), 10));
+    progress.record_visit("s1", "c1", "One", 20);
+    progress.record(episode_at("a", "e1", 30));
+    assert_eq!(
+        labels(&progress.recently_watched("s1", 12)),
+        ["Episode:e1", "channel:c1", "Movie:m1"]
+    );
+}
+
+#[test]
+fn recently_watched_includes_finished_and_short_entries() {
+    let mut progress = Progress::default();
+    progress.record(entry("done", 5300.0, Some(5400.0), 1));
+    progress.record(entry("short", 5.0, Some(5400.0), 2));
+    assert_eq!(
+        labels(&progress.recently_watched("s1", 12)),
+        ["Movie:short", "Movie:done"]
+    );
+}
+
+#[test]
+fn recently_watched_keeps_one_tile_per_series_with_the_latest_episode() {
+    let mut progress = Progress::default();
+    progress.record(episode_at("a", "e1", 10));
+    progress.record(episode_at("a", "e3", 30));
+    progress.record(episode_at("a", "e2", 20));
+    progress.record(episode_at("b", "f1", 15));
+    assert_eq!(
+        labels(&progress.recently_watched("s1", 12)),
+        ["Episode:e3", "Episode:f1"]
+    );
+}
+
+#[test]
+fn revisiting_a_channel_updates_it_without_a_duplicate() {
+    let mut progress = Progress::default();
+    progress.record_visit("s1", "c1", "One", 10);
+    progress.record_visit("s1", "c2", "Two", 20);
+    progress.record_visit("s1", "c1", "One", 30);
+    assert_eq!(
+        labels(&progress.recently_watched("s1", 12)),
+        ["channel:c1", "channel:c2"]
+    );
+}
+
+#[test]
+fn recently_watched_only_shows_the_requested_source() {
+    let mut progress = Progress::default();
+    progress.record(entry("m1", 100.0, Some(5400.0), 10));
+    progress.record_visit("s1", "c1", "One", 20);
+    progress.record_visit("s2", "c1", "Other", 30);
+    let mut other = entry("m2", 100.0, None, 40);
+    other.source_id = "s2".into();
+    progress.record(other);
+    assert_eq!(
+        labels(&progress.recently_watched("s1", 12)),
+        ["channel:c1", "Movie:m1"]
+    );
+    assert_eq!(
+        labels(&progress.recently_watched("s2", 12)),
+        ["Movie:m2", "channel:c1"]
+    );
+}
+
+#[test]
+fn stored_visits_are_capped_per_source_dropping_the_oldest() {
+    let mut progress = Progress::default();
+    progress.record_visit("s2", "keep", "Keep", 1);
+    for n in 0..(MAX_VISITS_PER_SOURCE + 5) {
+        progress.record_visit("s1", &format!("c{n}"), "Channel", 100 + n as i64);
+    }
+    let items = labels(&progress.recently_watched("s1", usize::MAX));
+    assert_eq!(items.len(), MAX_VISITS_PER_SOURCE);
+    assert_eq!(items[0], format!("channel:c{}", MAX_VISITS_PER_SOURCE + 4));
+    assert_eq!(items.last().unwrap(), "channel:c5");
+    assert_eq!(
+        labels(&progress.recently_watched("s2", usize::MAX)),
+        ["channel:keep"]
+    );
+}
+
+#[test]
+fn recently_watched_is_limited() {
+    let mut progress = Progress::default();
+    for n in 0..20 {
+        progress.record(entry(&format!("m{n}"), 100.0, None, n));
+    }
+    let items = labels(&progress.recently_watched("s1", 12));
+    assert_eq!(items.len(), 12);
+    assert_eq!(items[0], "Movie:m19");
+    assert_eq!(items[11], "Movie:m8");
+}
+
+#[test]
+fn visits_persist_and_old_files_without_them_load() {
+    let dir = std::env::temp_dir().join(format!("skjalf-visits-{}", std::process::id()));
+    std::fs::remove_dir_all(&dir).ok();
+    let store = Store::open(&dir).unwrap();
+    let mut progress = Progress::default();
+    progress.record_visit("s1", "c1", "One", 5);
+    store.save_progress(&progress).unwrap();
+    assert_eq!(store.load_progress(), progress);
+    std::fs::write(
+        dir.join("progress.json"),
+        r#"{"entries":[],"series_totals":[]}"#,
+    )
+    .unwrap();
+    assert_eq!(store.load_progress(), Progress::default());
+    std::fs::remove_dir_all(dir).ok();
 }

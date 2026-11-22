@@ -1,7 +1,7 @@
 //! Playback progress for movies and episodes: resume positions and the
 //! Continue Watching list. Pure data; persistence lives in [`crate::store`].
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
@@ -77,12 +77,33 @@ pub struct SeriesTotal {
     pub episodes: u32,
 }
 
+/// A live channel the user started.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChannelVisit {
+    pub source_id: String,
+    pub channel_id: String,
+    pub name: String,
+    pub visited_at: i64,
+}
+
+/// One item of the Recently Watched list.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Recent {
+    Entry(ProgressEntry),
+    Channel(ChannelVisit),
+}
+
+/// Channel visits kept per source; the oldest are dropped past this.
+pub const MAX_VISITS_PER_SOURCE: usize = 50;
+
 /// Every saved entry. Nothing is dropped; Continue Watching limits its own list.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Progress {
     entries: Vec<ProgressEntry>,
     #[serde(default)]
     series_totals: Vec<SeriesTotal>,
+    #[serde(default)]
+    visits: Vec<ChannelVisit>,
 }
 
 /// What a list row shows for an item.
@@ -250,5 +271,68 @@ impl Progress {
         items.sort_by_key(|entry| std::cmp::Reverse(entry.updated_at));
         items.truncate(limit);
         items
+    }
+
+    /// Note that a channel started. A repeat visit only moves the timestamp.
+    pub fn record_visit(&mut self, source_id: &str, channel_id: &str, name: &str, visited_at: i64) {
+        self.visits
+            .retain(|visit| !(visit.source_id == source_id && visit.channel_id == channel_id));
+        self.visits.push(ChannelVisit {
+            source_id: source_id.to_owned(),
+            channel_id: channel_id.to_owned(),
+            name: name.to_owned(),
+            visited_at,
+        });
+        let excess = self
+            .visits
+            .iter()
+            .filter(|visit| visit.source_id == source_id)
+            .count()
+            .saturating_sub(MAX_VISITS_PER_SOURCE);
+        let mut dropped = 0;
+        self.visits.retain(|visit| {
+            let drop = visit.source_id == source_id && dropped < excess;
+            dropped += usize::from(drop);
+            !drop
+        });
+    }
+
+    /// Movies, episodes, and channels of one source, newest first. A series
+    /// shows once, with its latest episode.
+    pub fn recently_watched(&self, source_id: &str, limit: usize) -> Vec<Recent> {
+        let mut items: Vec<(i64, Recent)> = self
+            .visits
+            .iter()
+            .rev()
+            .filter(|visit| visit.source_id == source_id)
+            .map(|visit| (visit.visited_at, Recent::Channel(visit.clone())))
+            .chain(
+                self.entries
+                    .iter()
+                    .filter(|entry| entry.source_id == source_id)
+                    .map(|entry| (entry.updated_at, Recent::Entry(entry.clone()))),
+            )
+            .collect();
+        items.sort_by_key(|(at, _)| std::cmp::Reverse(*at));
+        let mut seen = HashSet::new();
+        items
+            .into_iter()
+            .map(|(_, item)| item)
+            .filter(|item| seen.insert(item.tile_key()))
+            .take(limit)
+            .collect()
+    }
+}
+
+impl Recent {
+    fn tile_key(&self) -> (u8, String) {
+        match self {
+            Recent::Channel(visit) => (0, visit.channel_id.clone()),
+            Recent::Entry(entry) => match (entry.kind, &entry.series_id) {
+                (ProgressKind::Episode, Some(series_id)) => (1, series_id.clone()),
+                (ProgressKind::Episode, None) => (2, entry.id.clone()),
+                (ProgressKind::Movie, _) => (3, entry.id.clone()),
+            },
+        }
     }
 }
