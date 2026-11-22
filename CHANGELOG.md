@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.2 - 2026-11-22
+
+- Fixed: the app now reads every connected controller, not only the first one. On the Steam Deck an external controller works without a change to the controller order in Steam. A controller that you connect while the app runs also works. The last controller that you press is in control.
+
 ## 0.2.1 - 2026-11-20
 
 - A Trailer button on the movie details screen. In Game Mode the trailer opens in Steam's browser over the app. On the desktop it opens in the default browser.
