@@ -2,11 +2,10 @@
 
 use skjalf_core::catalog::ContentKind;
 use skjalf_core::display::{short_episode_title, visual_text};
-use skjalf_core::model::Channel;
 use skjalf_core::nav::View;
 use skjalf_core::progress::{ProgressEntry, ProgressKind, Recent};
 
-use super::{App, OnDemand, Playback};
+use super::{App, OnDemand, Playback, PlaybackStatus};
 
 /// Save the position this often while on-demand media plays.
 pub const SAVE_EVERY_MS: u64 = 10_000;
@@ -14,6 +13,9 @@ pub const SAVE_EVERY_MS: u64 = 10_000;
 pub const CONTINUE_LIMIT: usize = 12;
 /// Recently Watched shows at most this many items.
 pub const RECENT_LIMIT: usize = 12;
+/// A channel joins Recently Watched after playing this long, so zapping
+/// past channels leaves no trace.
+pub const VISIT_AFTER_MS: u64 = 10_000;
 
 fn progress_kind(kind: ContentKind) -> Option<ProgressKind> {
     match kind {
@@ -119,13 +121,27 @@ impl App {
         }
     }
 
-    pub(super) fn record_channel_visit(&mut self, channel: &Channel) {
+    pub(super) fn record_pending_visit(&mut self, now_ms: u64) {
+        let Some((channel, started_ms)) = &self.pending_visit else {
+            return;
+        };
+        if self.router.current() != View::Player || !matches!(self.playback, Playback::Live) {
+            self.pending_visit = None;
+            return;
+        }
+        let still_playing = self.playback_status == PlaybackStatus::Playing
+            && self.player.channel_id.as_deref() == Some(channel.id.as_str());
+        if !still_playing || now_ms < started_ms + VISIT_AFTER_MS {
+            return;
+        }
         let Some(source_id) = self.source_id().map(str::to_owned) else {
             return;
         };
+        let (channel_id, name) = (channel.id.clone(), channel.name.clone());
+        self.pending_visit = None;
         let visited_at = self.now_secs();
         self.progress
-            .record_visit(&source_id, &channel.id, &channel.name, visited_at);
+            .record_visit(&source_id, &channel_id, &name, visited_at);
         self.persist_progress();
     }
 

@@ -143,6 +143,9 @@ pub struct App {
     continue_art: Vec<(Option<String>, String)>,
     /// Recently Watched entries and channels for the current source, newest first.
     recent_items: Vec<Recent>,
+    /// The channel that last started and when (ms); it joins Recently Watched
+    /// once it has played for [`progress::VISIT_AFTER_MS`].
+    pending_visit: Option<(Channel, u64)>,
     recent_titles: Vec<String>,
     /// Recently Watched art: poster, cover, or logo URL, and the frame key
     /// (channels have none).
@@ -290,6 +293,7 @@ impl App {
             continue_titles: Vec::new(),
             continue_art: Vec::new(),
             recent_items: Vec::new(),
+            pending_visit: None,
             recent_titles: Vec::new(),
             recent_art: Vec::new(),
             markers: MarkerIndex::default(),
@@ -784,6 +788,7 @@ impl App {
         }
         self.refresh_media_clock(now_ms);
         self.save_progress_periodically(now_ms);
+        self.record_pending_visit(now_ms);
         // Periodic EPG refresh while watching (TTL-guarded, cheap).
         if self.router.current() == View::Player {
             self.fetch_epg(now_ms);
@@ -871,7 +876,7 @@ impl App {
             self.settings.last_channel = Some((source_id.to_owned(), channel.id.clone()));
             self.save_settings();
         }
-        self.record_channel_visit(channel);
+        self.pending_visit = Some((channel.clone(), now_ms));
         self.enter_player(now_ms);
         self.sync_live_to_channel(&channel.id);
         self.fetch_epg(now_ms);

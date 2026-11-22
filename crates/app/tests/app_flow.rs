@@ -7799,7 +7799,9 @@ fn a_successful_connect_checks_the_account() {
 
 // -- Recently Watched -------------------------------------------------------------------
 
-fn play_channel(a: &mut App, channel_id: &str) {
+const VISIT_MS: u64 = 10_000;
+
+fn start_channel(a: &mut App, engine: &MockEngine, channel_id: &str, now_ms: u64) {
     let channel = a
         .playlist
         .as_ref()
@@ -7807,10 +7809,67 @@ fn play_channel(a: &mut App, channel_id: &str) {
         .find(channel_id)
         .cloned()
         .unwrap();
-    a.play(&channel, 0);
+    a.play(&channel, now_ms);
     assert_eq!(a.router.current(), View::Player);
+    engine.events.lock().unwrap().push(PlayerEvent::Loaded);
+    a.poll_jobs(now_ms);
+}
+
+fn play_channel(a: &mut App, channel_id: &str) {
+    let engine = MockEngine::default();
+    a.engine = Some(Box::new(engine.clone()));
+    start_channel(a, &engine, channel_id, 0);
+    a.poll_jobs(VISIT_MS);
     a.router.reset(View::Main);
     a.main_row = None;
+}
+
+fn playing_channels(tag: &str) -> (App, MockEngine) {
+    let (mut a, _) = main_with_content(tag);
+    let engine = MockEngine::default();
+    a.engine = Some(Box::new(engine.clone()));
+    (a, engine)
+}
+
+#[test]
+fn a_channel_joins_recently_watched_after_ten_seconds_of_playback() {
+    let (mut a, engine) = playing_channels("recent_ten_seconds");
+    start_channel(&mut a, &engine, "2", 1_000);
+    a.poll_jobs(1_000 + VISIT_MS - 1);
+    assert_eq!(tile_titles(&a, MainRow::Recent).len(), 5);
+    a.poll_jobs(1_000 + VISIT_MS);
+    assert_eq!(tile_titles(&a, MainRow::Recent)[0], "News 2");
+    assert_eq!(
+        a.store.as_ref().unwrap().load_progress(),
+        a.progress,
+        "the visit is saved"
+    );
+}
+
+#[test]
+fn zapping_past_channels_records_only_the_one_that_keeps_playing() {
+    let (mut a, engine) = playing_channels("recent_zapping");
+    start_channel(&mut a, &engine, "1", 0);
+    a.poll_jobs(9_000);
+    start_channel(&mut a, &engine, "2", 9_500);
+    a.poll_jobs(19_000);
+    start_channel(&mut a, &engine, "4", 19_500);
+    a.poll_jobs(29_000);
+    assert_eq!(tile_titles(&a, MainRow::Recent).len(), 5, "nothing yet");
+    a.poll_jobs(29_500);
+    let titles = tile_titles(&a, MainRow::Recent);
+    assert_eq!(titles.len(), 6);
+    assert_eq!(titles[0], "News 3");
+}
+
+#[test]
+fn leaving_the_player_before_ten_seconds_records_nothing() {
+    let (mut a, engine) = playing_channels("recent_left_early");
+    start_channel(&mut a, &engine, "2", 0);
+    a.handle_action(Action::Back, 5_000);
+    assert_ne!(a.router.current(), View::Player);
+    a.poll_jobs(VISIT_MS + 1);
+    assert_eq!(tile_titles(&a, MainRow::Recent).len(), 5);
 }
 
 #[test]
