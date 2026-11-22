@@ -2,8 +2,9 @@
 
 use skjalf_core::catalog::ContentKind;
 use skjalf_core::display::{short_episode_title, visual_text};
+use skjalf_core::model::Channel;
 use skjalf_core::nav::View;
-use skjalf_core::progress::{ProgressEntry, ProgressKind};
+use skjalf_core::progress::{ProgressEntry, ProgressKind, Recent};
 
 use super::{App, OnDemand, Playback};
 
@@ -11,6 +12,8 @@ use super::{App, OnDemand, Playback};
 pub const SAVE_EVERY_MS: u64 = 10_000;
 /// Continue Watching shows at most this many items.
 pub const CONTINUE_LIMIT: usize = 12;
+/// Recently Watched shows at most this many items.
+pub const RECENT_LIMIT: usize = 12;
 
 fn progress_kind(kind: ContentKind) -> Option<ProgressKind> {
     match kind {
@@ -36,13 +39,17 @@ impl App {
             title: item.record_title.clone(),
             position_secs: position,
             duration_secs: duration.filter(|d| *d > 0.0),
-            updated_at: i64::try_from((self.clock)()).unwrap_or(i64::MAX),
+            updated_at: self.now_secs(),
             finished: false,
             series_id: episode.map(|e| e.series_id.clone()),
             series_name: episode.map(|e| e.series_name.clone()),
             season: episode.map(|e| e.season),
             episode: episode.map(|e| e.number),
         })
+    }
+
+    fn now_secs(&self) -> i64 {
+        i64::try_from((self.clock)()).unwrap_or(i64::MAX)
     }
 
     pub fn resume_position(&self, kind: ProgressKind, id: &str) -> Option<f64> {
@@ -112,6 +119,16 @@ impl App {
         }
     }
 
+    pub(super) fn record_channel_visit(&mut self, channel: &Channel) {
+        let Some(source_id) = self.source_id().map(str::to_owned) else {
+            return;
+        };
+        let visited_at = self.now_secs();
+        self.progress
+            .record_visit(&source_id, &channel.id, &channel.name, visited_at);
+        self.persist_progress();
+    }
+
     /// Remember a series' episode count so its row can read Watched.
     pub(super) fn record_series_total(&mut self, series_id: &str, episodes: u32) {
         let Some(source_id) = self.source_id().map(str::to_owned) else {
@@ -127,6 +144,14 @@ impl App {
     pub(super) fn refresh_continue_items(&mut self) {
         self.rebuild_continue_items();
         self.continue_titles = self.continue_items.iter().map(continue_title).collect();
+        self.recent_titles = self
+            .recent_items
+            .iter()
+            .map(|item| match item {
+                Recent::Entry(entry) => continue_title(entry),
+                Recent::Channel(visit) => visual_text(&visit.name).into_owned(),
+            })
+            .collect();
         self.rebuild_continue_art();
     }
 
@@ -136,33 +161,53 @@ impl App {
         self.continue_art = self
             .continue_items
             .iter()
-            .map(|entry| match (entry.kind, entry.series_id.as_deref()) {
-                (ProgressKind::Episode, Some(series_id)) => (
-                    self.series_slot.loaded.as_ref().and_then(|loaded| {
-                        loaded
-                            .data
-                            .series
-                            .iter()
-                            .find(|series| series.id == series_id)?
-                            .cover
-                            .clone()
-                    }),
-                    super::frames::frame_key("series", series_id),
-                ),
-                _ => (
-                    self.movie_slot.loaded.as_ref().and_then(|loaded| {
-                        loaded
-                            .data
-                            .movies
-                            .iter()
-                            .find(|movie| movie.id == entry.id)?
-                            .icon
-                            .clone()
-                    }),
-                    super::frames::frame_key("movie", &entry.id),
+            .map(|entry| self.entry_art(entry))
+            .collect();
+        self.recent_art = self
+            .recent_items
+            .iter()
+            .map(|item| match item {
+                Recent::Entry(entry) => {
+                    let (url, frame) = self.entry_art(entry);
+                    (url, Some(frame))
+                }
+                Recent::Channel(visit) => (
+                    self.playlist
+                        .as_ref()
+                        .and_then(|playlist| playlist.find(&visit.channel_id)?.logo.clone()),
+                    None,
                 ),
             })
             .collect();
+    }
+
+    fn entry_art(&self, entry: &ProgressEntry) -> (Option<String>, String) {
+        match (entry.kind, entry.series_id.as_deref()) {
+            (ProgressKind::Episode, Some(series_id)) => (
+                self.series_slot.loaded.as_ref().and_then(|loaded| {
+                    loaded
+                        .data
+                        .series
+                        .iter()
+                        .find(|series| series.id == series_id)?
+                        .cover
+                        .clone()
+                }),
+                super::frames::frame_key("series", series_id),
+            ),
+            _ => (
+                self.movie_slot.loaded.as_ref().and_then(|loaded| {
+                    loaded
+                        .data
+                        .movies
+                        .iter()
+                        .find(|movie| movie.id == entry.id)?
+                        .icon
+                        .clone()
+                }),
+                super::frames::frame_key("movie", &entry.id),
+            ),
+        }
     }
 
     fn rebuild_continue_items(&mut self) {
@@ -179,6 +224,10 @@ impl App {
                     .cloned()
                     .collect()
             })
+            .unwrap_or_default();
+        self.recent_items = self
+            .source_id()
+            .map(|source_id| self.progress.recently_watched(source_id, RECENT_LIMIT))
             .unwrap_or_default();
     }
 }

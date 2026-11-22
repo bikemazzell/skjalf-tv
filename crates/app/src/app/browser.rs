@@ -121,6 +121,7 @@ impl App {
             }
         }
         self.live_refresh();
+        self.rebuild_continue_art();
     }
 
     /// Recompute the visible items if the catalog, category, query, sort, or

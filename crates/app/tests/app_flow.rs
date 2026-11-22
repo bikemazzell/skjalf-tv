@@ -4380,7 +4380,7 @@ fn latest_rows_hold_at_most_twelve_items() {
 #[test]
 fn continue_watching_is_newest_first_and_skips_finished_and_short_items() {
     let (a, _) = main_with_content("main_continue_order");
-    assert_eq!(a.main_rows(), [MainRow::Continue]);
+    assert_eq!(a.main_rows(), [MainRow::Continue, MainRow::Recent]);
     assert_eq!(
         tile_titles(&a, MainRow::Continue),
         ["Show B  E2  Two B", "Other D", "Movie A"]
@@ -4404,6 +4404,7 @@ fn main_row_navigation_and_selection_restore() {
         a.main_rows(),
         [
             MainRow::Continue,
+            MainRow::Recent,
             MainRow::LatestMovies,
             MainRow::LatestSeries
         ]
@@ -4419,6 +4420,10 @@ fn main_row_navigation_and_selection_restore() {
         "clamped at the end"
     );
     a.handle_action(Action::Down, 0);
+    assert_eq!(a.main_row, Some(MainRow::Recent));
+    a.handle_action(Action::Right, 0);
+    assert_eq!(a.main_row_selection(MainRow::Recent), 1);
+    a.handle_action(Action::Down, 0);
     assert_eq!(a.main_row, Some(MainRow::LatestMovies));
     a.handle_action(Action::Right, 0);
     a.handle_action(Action::Down, 0);
@@ -4428,6 +4433,7 @@ fn main_row_navigation_and_selection_restore() {
         Some(MainRow::LatestSeries),
         "no wrap past the last row"
     );
+    a.handle_action(Action::Up, 0);
     a.handle_action(Action::Up, 0);
     a.handle_action(Action::Up, 0);
     a.handle_action(Action::Up, 0);
@@ -4442,6 +4448,7 @@ fn main_row_navigation_and_selection_restore() {
         2,
         "row selection kept"
     );
+    assert_eq!(a.main_row_selection(MainRow::Recent), 1);
     assert_eq!(a.main_row_selection(MainRow::LatestMovies), 1);
 }
 
@@ -5492,7 +5499,7 @@ fn selected_primary_button_scrolls_back_into_view_at_deck_scale() {
         output.unwrap()
     };
     frames(&ctx, &mut a);
-    for _ in 0..3 {
+    for _ in 0..4 {
         a.handle_action(Action::Down, 0);
     }
     assert_eq!(a.main_row, Some(MainRow::LatestMovies));
@@ -5508,7 +5515,7 @@ fn selected_primary_button_scrolls_back_into_view_at_deck_scale() {
         text_positions(&output, "Live TV").iter().all(|p| p.y < 0.0),
         "the buttons scrolled out of view while the last row is selected"
     );
-    for _ in 0..3 {
+    for _ in 0..4 {
         a.handle_action(Action::Up, 0);
     }
     assert_eq!(a.main_row, None);
@@ -7788,4 +7795,141 @@ fn a_successful_connect_checks_the_account() {
         .unwrap();
     a.connect_rx = Some(rx);
     wait_for(&mut a, |a| a.account.is_some());
+}
+
+// -- Recently Watched -------------------------------------------------------------------
+
+fn play_channel(a: &mut App, channel_id: &str) {
+    let channel = a
+        .playlist
+        .as_ref()
+        .unwrap()
+        .find(channel_id)
+        .cloned()
+        .unwrap();
+    a.play(&channel, 0);
+    assert_eq!(a.router.current(), View::Player);
+    a.router.reset(View::Main);
+    a.main_row = None;
+}
+
+#[test]
+fn recently_watched_lists_finished_short_and_series_items_newest_first() {
+    let (a, _) = main_with_content("recent_order");
+    assert_eq!(
+        tile_titles(&a, MainRow::Recent),
+        [
+            "Movie C",
+            "Movie B",
+            "Show B  E2  Two B",
+            "Other D",
+            "Movie A"
+        ]
+    );
+    assert_eq!(
+        a.main_row_tiles(MainRow::Recent)[1].marker,
+        skjalf_core::progress::Marker::Watched
+    );
+    assert!(!tile_titles(&a, MainRow::Continue).contains(&"Movie B".to_owned()));
+}
+
+#[test]
+fn a_finished_episode_is_recent_but_not_continue_watching() {
+    let dir = seeded_dir("recent_finished_episode");
+    let mut progress = Progress::default();
+    let mut finished = episode_progress("200221", 30);
+    finished.position_secs = 5300.0;
+    progress.record(finished);
+    Store::open(&dir).unwrap().save_progress(&progress).unwrap();
+    let a = main_app_at(&dir);
+    assert_eq!(a.main_rows(), [MainRow::Recent]);
+    assert_eq!(tile_titles(&a, MainRow::Recent), ["Show B  E2  Two B"]);
+}
+
+#[test]
+fn playing_a_channel_puts_it_first_in_recently_watched() {
+    let (mut a, _) = main_with_content("recent_channel");
+    play_channel(&mut a, "2");
+    let tiles = a.main_row_tiles(MainRow::Recent);
+    assert_eq!(tiles.len(), 6);
+    assert_eq!(tiles[0].title, "News 2");
+    assert_eq!(tiles[0].detail.as_deref(), Some("Live"));
+    assert_eq!(tiles[0].marker, skjalf_core::progress::Marker::None);
+    assert_eq!(tiles[0].art, None, "this channel has no logo");
+    assert_eq!(tile_titles(&a, MainRow::Continue).len(), 3);
+    play_channel(&mut a, "1");
+    play_channel(&mut a, "2");
+    let titles = tile_titles(&a, MainRow::Recent);
+    assert_eq!(&titles[..2], ["News 2", "News 1"]);
+    assert_eq!(titles.len(), 7);
+}
+
+#[test]
+fn selecting_a_channel_tile_plays_it() {
+    let (mut a, _) = main_with_content("recent_select_channel");
+    play_channel(&mut a, "4");
+    press(&mut a, &[Action::Down, Action::Down, Action::Select]);
+    assert_eq!(a.main_row, Some(MainRow::Recent));
+    assert_eq!(a.router.current(), View::Player);
+    assert_eq!(a.player.channel_id.as_deref(), Some("4"));
+}
+
+#[test]
+fn a_channel_missing_from_the_playlist_only_shows_a_notice() {
+    let dir = seeded_dir("recent_missing_channel");
+    let mut progress = Progress::default();
+    progress.record_visit(&source().id, "99", "Gone TV", 5);
+    Store::open(&dir).unwrap().save_progress(&progress).unwrap();
+    let mut a = main_app_at(&dir);
+    a.engine = Some(Box::new(MockEngine::default()));
+    press(&mut a, &[Action::Down, Action::Select]);
+    assert_eq!(a.router.current(), View::Main);
+    assert_eq!(
+        a.notice.as_deref(),
+        Some("That channel is not in the playlist.")
+    );
+}
+
+#[test]
+fn selecting_a_movie_tile_opens_its_details() {
+    let (mut a, _) = main_with_content("recent_select_movie");
+    load_catalogs(&mut a);
+    press(&mut a, &[Action::Down, Action::Down, Action::Select]);
+    assert_eq!(a.main_row, Some(MainRow::Recent));
+    assert_eq!(a.router.current(), View::MovieDetails);
+    assert_eq!(a.movie_details.as_ref().unwrap().movie.id, "1003");
+}
+
+#[test]
+fn channel_visits_survive_a_restart() {
+    let dir = seeded_dir("recent_restart");
+    let mut a = main_app_at(&dir);
+    a.engine = Some(Box::new(MockEngine::default()));
+    play_channel(&mut a, "3");
+    let b = main_app_at(&dir);
+    assert_eq!(b.main_rows(), [MainRow::Recent]);
+    assert_eq!(tile_titles(&b, MainRow::Recent), ["Sport 1"]);
+}
+
+#[test]
+fn the_recently_watched_row_renders_with_channel_tiles() {
+    let (mut a, _) = main_with_content("recent_render");
+    load_catalogs(&mut a);
+    play_channel(&mut a, "2");
+    let ctx = egui::Context::default();
+    skjalf::theme::apply(&ctx);
+    let tall = egui::RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(1600.0, 1600.0),
+        )),
+        ..Default::default()
+    };
+    let output = ctx.run(tall, |ctx| skjalf::views::main_menu::show(ctx, &mut a));
+    let mut labels = Vec::new();
+    for shape in &output.shapes {
+        shape_texts(&shape.shape, &mut labels);
+    }
+    assert!(labels.iter().any(|text| text == "Recently Watched"));
+    assert!(labels.iter().any(|text| text.contains("News 2")));
 }

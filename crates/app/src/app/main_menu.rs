@@ -1,7 +1,7 @@
 //! Main screen: the destination buttons and the placeholder destinations.
 
 use skjalf_core::catalog::{format_rating, SeriesItem};
-use skjalf_core::progress::{Marker, ProgressEntry, ProgressKind};
+use skjalf_core::progress::{Marker, ProgressEntry, ProgressKind, Recent};
 
 use super::{App, BrowserId};
 use crate::input::Action;
@@ -47,13 +47,15 @@ impl MainButton {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MainRow {
     Continue,
+    Recent,
     LatestMovies,
     LatestSeries,
 }
 
 impl MainRow {
-    const ALL: [MainRow; 3] = [
+    const ALL: [MainRow; 4] = [
         MainRow::Continue,
+        MainRow::Recent,
         MainRow::LatestMovies,
         MainRow::LatestSeries,
     ];
@@ -61,6 +63,7 @@ impl MainRow {
     pub fn title(self) -> &'static str {
         match self {
             MainRow::Continue => "Continue Watching",
+            MainRow::Recent => "Recently Watched",
             MainRow::LatestMovies => "Latest Movies",
             MainRow::LatestSeries => "Latest Series",
         }
@@ -89,6 +92,7 @@ impl App {
     fn main_row_len(&self, row: MainRow) -> usize {
         match row {
             MainRow::Continue => self.continue_items.len(),
+            MainRow::Recent => self.recent_items.len(),
             MainRow::LatestMovies => self
                 .movie_slot
                 .loaded
@@ -133,6 +137,39 @@ impl App {
                         .continue_art
                         .get(position)
                         .map(|(url, frame)| self.art_or_frame(url.as_ref(), frame.clone())),
+                })
+                .collect(),
+            MainRow::Recent => self
+                .recent_items
+                .iter()
+                .enumerate()
+                .map(|(position, item)| {
+                    let title = self
+                        .recent_titles
+                        .get(position)
+                        .cloned()
+                        .unwrap_or_default();
+                    let art = self
+                        .recent_art
+                        .get(position)
+                        .and_then(|(url, frame)| match frame {
+                            Some(frame) => Some(self.art_or_frame(url.as_ref(), frame.clone())),
+                            None => url.clone(),
+                        });
+                    match item {
+                        Recent::Entry(entry) => RowTile {
+                            title,
+                            detail: None,
+                            marker: entry.marker(),
+                            art,
+                        },
+                        Recent::Channel(_) => RowTile {
+                            title,
+                            detail: Some("Live".into()),
+                            marker: Marker::None,
+                            art,
+                        },
+                    }
                 })
                 .collect(),
             MainRow::LatestMovies => self
@@ -180,7 +217,7 @@ impl App {
         }
     }
 
-    pub(super) fn handle_main(&mut self, action: Action) {
+    pub(super) fn handle_main(&mut self, action: Action, now_ms: u64) {
         let rows = self.main_rows();
         if let Some(row) = self.main_row {
             if !rows.contains(&row) {
@@ -188,7 +225,7 @@ impl App {
             }
         }
         if let Some(row) = self.main_row {
-            return self.handle_main_row(row, &rows, action);
+            return self.handle_main_row(row, &rows, action, now_ms);
         }
         let index = self.main_focus.index();
         let columns = self.main_columns.max(1);
@@ -210,7 +247,7 @@ impl App {
         }
     }
 
-    fn handle_main_row(&mut self, row: MainRow, rows: &[MainRow], action: Action) {
+    fn handle_main_row(&mut self, row: MainRow, rows: &[MainRow], action: Action, now_ms: u64) {
         let len = self.main_row_len(row);
         let selected = self.main_row_selection(row);
         let position = rows
@@ -224,13 +261,13 @@ impl App {
             Action::Up => self.main_row = Some(rows[position - 1]),
             Action::Down => self.main_row = rows.get(position + 1).copied().or(Some(row)),
             Action::Back => self.main_row = None,
-            Action::Select => self.open_main_tile(row, selected),
+            Action::Select => self.open_main_tile(row, selected, now_ms),
             _ => {}
         }
     }
 
     /// Open the details screen behind a Main tile.
-    pub fn open_main_tile(&mut self, row: MainRow, tile: usize) {
+    pub fn open_main_tile(&mut self, row: MainRow, tile: usize, now_ms: u64) {
         self.main_row = Some(row);
         self.main_row_sel[row.slot()] = tile;
         match row {
@@ -240,6 +277,13 @@ impl App {
                 };
                 self.open_continue_entry(&entry);
             }
+            MainRow::Recent => match self.recent_items.get(tile).cloned() {
+                Some(Recent::Entry(entry)) => self.open_continue_entry(&entry),
+                Some(Recent::Channel(visit)) => {
+                    self.play_visited_channel(&visit.channel_id, now_ms)
+                }
+                None => {}
+            },
             MainRow::LatestMovies => {
                 let item = self
                     .movie_slot
@@ -300,6 +344,19 @@ impl App {
             }
         }
     }
+
+    fn play_visited_channel(&mut self, channel_id: &str, now_ms: u64) {
+        let channel = self
+            .playlist
+            .as_ref()
+            .and_then(|playlist| playlist.find(channel_id))
+            .cloned();
+        match channel {
+            Some(channel) => self.play(&channel, now_ms),
+            None => self.notice = Some("That channel is not in the playlist.".into()),
+        }
+    }
+
     pub fn activate_main_button(&mut self, button: MainButton) {
         self.main_focus = button;
         match button {

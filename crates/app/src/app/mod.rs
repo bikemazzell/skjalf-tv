@@ -13,7 +13,7 @@ use skjalf_core::model::{
     Activation, Channel, EpgEntry, Favorites, Playlist, Settings, Source, SourceKind,
 };
 use skjalf_core::nav::{step_channel, OsdKind, PlayerModel, Router, View, ZapBuffer};
-use skjalf_core::progress::{MarkerIndex, Progress, ProgressEntry};
+use skjalf_core::progress::{MarkerIndex, Progress, ProgressEntry, Recent};
 use skjalf_core::store::Store;
 use skjalf_core::tracks::TrackKind;
 use skjalf_core::xtream::HttpFetcher;
@@ -141,6 +141,12 @@ pub struct App {
     pub continue_titles: Vec<String>,
     /// Continue Watching art: poster or cover URL, and the frame key.
     continue_art: Vec<(Option<String>, String)>,
+    /// Recently Watched entries and channels for the current source, newest first.
+    recent_items: Vec<Recent>,
+    recent_titles: Vec<String>,
+    /// Recently Watched art: poster, cover, or logo URL, and the frame key
+    /// (channels have none).
+    recent_art: Vec<(Option<String>, Option<String>)>,
     /// Watched and in-progress markers, rebuilt when progress changes.
     pub markers: MarkerIndex,
     /// Unix seconds; injectable for tests.
@@ -158,7 +164,7 @@ pub struct App {
     pub main_focus: MainButton,
     /// The Main content row holding focus, or `None` for the buttons.
     pub main_row: Option<MainRow>,
-    main_row_sel: [usize; 3],
+    main_row_sel: [usize; 4],
     /// Last rendered Main focus; drives scroll-into-view when it changes or
     /// returns after another screen.
     pub last_main_scroll_key: Option<(MainButton, Option<MainRow>, usize)>,
@@ -283,6 +289,9 @@ impl App {
             continue_items: Vec::new(),
             continue_titles: Vec::new(),
             continue_art: Vec::new(),
+            recent_items: Vec::new(),
+            recent_titles: Vec::new(),
+            recent_art: Vec::new(),
             markers: MarkerIndex::default(),
             clock: Arc::new(unix_now),
             auto_refresh: false,
@@ -295,7 +304,7 @@ impl App {
             last_browser_sel: [None; 3],
             main_focus: MainButton::default(),
             main_row: None,
-            main_row_sel: [0; 3],
+            main_row_sel: [0; 4],
             last_main_scroll_key: None,
             main_columns: MainButton::ALL.len(),
             settings_focus: SettingsFocus::default(),
@@ -440,7 +449,7 @@ impl App {
         }
         match self.router.current() {
             View::Setup => self.handle_setup(action, now_ms),
-            View::Main => self.handle_main(action),
+            View::Main => self.handle_main(action, now_ms),
             View::Live => self.handle_browser(BrowserId::Live, action, now_ms),
             View::Movies => self.handle_browser(BrowserId::Movies, action, now_ms),
             View::MovieDetails => self.handle_movie_details(action, now_ms),
@@ -862,6 +871,7 @@ impl App {
             self.settings.last_channel = Some((source_id.to_owned(), channel.id.clone()));
             self.save_settings();
         }
+        self.record_channel_visit(channel);
         self.enter_player(now_ms);
         self.sync_live_to_channel(&channel.id);
         self.fetch_epg(now_ms);

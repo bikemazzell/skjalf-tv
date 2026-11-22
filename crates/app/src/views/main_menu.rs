@@ -27,6 +27,7 @@ pub fn show(ctx: &egui::Context, app: &mut App) {
             ui.label(skjalf_core::display::visual_text(message));
         });
     }
+    let now_ms = (ctx.input(|i| i.time) * 1000.0) as u64;
     let mut activated = None;
     let mut opened_tile = None;
     let scroll_key = (
@@ -128,6 +129,6 @@ pub fn show(ctx: &egui::Context, app: &mut App) {
         app.activate_main_button(button);
     }
     if let Some((row, tile)) = opened_tile {
-        app.open_main_tile(row, tile);
+        app.open_main_tile(row, tile, now_ms);
     }
 }
