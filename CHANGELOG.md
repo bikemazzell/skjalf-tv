@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.4 - 2026-11-22
+
+- A Recently Watched row on the Main screen, below Continue Watching. It shows the last 12 movies, series, and live channels that you watched, newest first, also when you finished them. A series shows once, with its last episode. A live channel joins the row after it plays for 10 seconds, so channels that you skip past do not show.
+
 ## 0.2.3 - 2026-11-22
 
 - Fixed: in Game Mode, the buttons of an external controller match the Steam Deck layout. The app now reads the controller through Steam, as games do. Before, an 8BitDo controller in Xbox mode had A and B, and X and Y, swapped.
