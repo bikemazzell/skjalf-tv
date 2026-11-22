@@ -38,6 +38,8 @@ const FIRST_REPEAT_MS: u64 = 300;
 const REPEAT_MS: u64 = 140;
 const MIRROR_WINDOW: Duration = Duration::from_millis(150);
 const DEVICE_SCAN_INTERVAL: Duration = Duration::from_millis(500);
+// udev grants access to a new device node shortly after it appears.
+const SCANS_AFTER_CHANGE: u8 = 6;
 
 /// One calibrated stick axis. A held direction repeats at a fixed rate.
 pub struct StickRepeater {
@@ -367,6 +369,7 @@ fn discover_loop(
     let (done_tx, done_rx) = mpsc::channel();
     let mut active: HashSet<PathBuf> = HashSet::new();
     let mut known_names: Option<Vec<OsString>> = None;
+    let mut scans_left = 0u8;
     let mut next_device_id = 0u64;
     while alive.load(Ordering::Relaxed) {
         let mut reader_exited = false;
@@ -377,6 +380,10 @@ fn discover_loop(
         let names = input_device_names();
         if reader_exited || known_names.as_ref() != Some(&names) {
             known_names = Some(names);
+            scans_left = SCANS_AFTER_CHANGE;
+        }
+        if scans_left > 0 {
+            scans_left -= 1;
             let gamepads = evdev::enumerate()
                 .filter(|(_, device)| {
                     let keys: Vec<u16> = device
