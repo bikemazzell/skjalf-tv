@@ -5,7 +5,10 @@
 //! evdev gamepad (D-pad + A/B/X/Y + shoulders), so no SDL is required.
 //! Mapping is pure and unit-tested; device I/O lives in a per-device thread.
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::collections::HashSet;
+use std::ffi::OsString;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -33,6 +36,8 @@ pub const ABS_Y: u16 = 0x01;
 const STICK_DEAD_ZONE: f32 = 0.35;
 const FIRST_REPEAT_MS: u64 = 300;
 const REPEAT_MS: u64 = 140;
+const MIRROR_WINDOW: Duration = Duration::from_millis(150);
+const DEVICE_SCAN_INTERVAL: Duration = Duration::from_millis(500);
 
 /// One calibrated stick axis. A held direction repeats at a fixed rate.
 pub struct StickRepeater {
@@ -239,36 +244,62 @@ pub fn is_gamepad(supported_keys: &[u16]) -> bool {
     supported_keys.contains(&BTN_SOUTH)
 }
 
+/// Picks one controller at a time from several devices that may mirror each
+/// other (Steam Input's virtual pad duplicates the raw device it wraps).
+#[derive(Default)]
+struct Arbiter {
+    owner: Option<(u64, Instant)>,
+}
+
+impl Arbiter {
+    fn accept(&mut self, device: u64, repeated: bool, at: Instant) -> bool {
+        match self.owner {
+            Some((owner, _)) if owner == device => {
+                self.owner = Some((device, at));
+                true
+            }
+            Some((_, last)) if at.saturating_duration_since(last) <= MIRROR_WINDOW => false,
+            _ if repeated => false,
+            _ => {
+                self.owner = Some((device, at));
+                true
+            }
+        }
+    }
+}
+
 /// Handle to the background gamepad reader threads.
 pub struct GamepadThread {
     rx: Receiver<GamepadAction>,
     alive: Arc<AtomicBool>,
     focused: Arc<AtomicBool>,
     repeat_enabled: Arc<AtomicBool>,
-    reset_held: Arc<AtomicBool>,
+    reset_generation: Arc<AtomicU64>,
+    arbiter: Arbiter,
     last_drain: Instant,
 }
 
-/// A first press or a held-direction repeat from the gamepad reader.
+/// A first press or a held-direction repeat from one gamepad reader.
 pub struct GamepadAction {
     pub action: Action,
     pub repeated: bool,
+    device: u64,
     at: Instant,
 }
 
 impl GamepadThread {
-    /// Discover a controller now and after future device changes.
-    /// Only one reader owns the active controller at a time.
+    /// Read every controller now and after future device changes.
+    /// Input from one controller at a time passes; its mirrors are dropped.
     pub fn spawn() -> Option<Self> {
         let (tx, rx) = mpsc::channel();
         let alive = Arc::new(AtomicBool::new(true));
         let monitor_alive = alive.clone();
         let focused = Arc::new(AtomicBool::new(false));
         let repeat_enabled = Arc::new(AtomicBool::new(false));
-        let reset_held = Arc::new(AtomicBool::new(false));
+        let reset_generation = Arc::new(AtomicU64::new(0));
         let reader_focus = focused.clone();
         let reader_repeat = repeat_enabled.clone();
-        let reader_reset = reset_held.clone();
+        let reader_reset = reset_generation.clone();
         std::thread::spawn(move || {
             discover_loop(tx, monitor_alive, reader_focus, reader_repeat, reader_reset);
         });
@@ -277,7 +308,8 @@ impl GamepadThread {
             alive,
             focused,
             repeat_enabled,
-            reset_held,
+            reset_generation,
+            arbiter: Arbiter::default(),
             last_drain: Instant::now(),
         })
     }
@@ -291,13 +323,15 @@ impl GamepadThread {
         self.repeat_enabled
             .store(focused && repeat_enabled, Ordering::Relaxed);
         if !focused || !was_focused || gap {
-            self.reset_held.store(true, Ordering::Relaxed);
+            self.reset_generation.fetch_add(1, Ordering::Relaxed);
             self.rx.try_iter().for_each(drop);
             return Vec::new();
         }
+        let arbiter = &mut self.arbiter;
         self.rx
             .try_iter()
             .filter(|event| now.duration_since(event.at) <= Duration::from_millis(200))
+            .filter(|event| arbiter.accept(event.device, event.repeated, event.at))
             .collect()
     }
 }
@@ -308,40 +342,64 @@ impl Drop for GamepadThread {
     }
 }
 
+fn input_device_names() -> Vec<OsString> {
+    let mut names: Vec<OsString> = std::fs::read_dir("/dev/input")
+        .map(|entries| entries.flatten().map(|entry| entry.file_name()).collect())
+        .unwrap_or_default();
+    names.sort();
+    names
+}
+
+fn unclaimed<T>(found: Vec<(PathBuf, T)>, active: &HashSet<PathBuf>) -> Vec<(PathBuf, T)> {
+    found
+        .into_iter()
+        .filter(|(path, _)| !active.contains(path))
+        .collect()
+}
+
 fn discover_loop(
     tx: Sender<GamepadAction>,
     alive: Arc<AtomicBool>,
     focused: Arc<AtomicBool>,
     repeat_enabled: Arc<AtomicBool>,
-    reset_held: Arc<AtomicBool>,
+    reset_generation: Arc<AtomicU64>,
 ) {
     let (done_tx, done_rx) = mpsc::channel();
-    let mut active: Option<std::path::PathBuf> = None;
+    let mut active: HashSet<PathBuf> = HashSet::new();
+    let mut known_names: Option<Vec<OsString>> = None;
+    let mut next_device_id = 0u64;
     while alive.load(Ordering::Relaxed) {
+        let mut reader_exited = false;
         while let Ok(done) = done_rx.try_recv() {
-            if active.as_ref() == Some(&done) {
-                active = None;
-            }
+            active.remove(&done);
+            reader_exited = true;
         }
-        if active.is_none() {
-            for (path, device) in evdev::enumerate() {
-                let keys: Vec<u16> = device
-                    .supported_keys()
-                    .map(|keys| keys.iter().map(|key| key.0).collect())
-                    .unwrap_or_default();
-                if !is_gamepad(&keys) {
-                    continue;
-                }
-                active = Some(path.clone());
+        let names = input_device_names();
+        if reader_exited || known_names.as_ref() != Some(&names) {
+            known_names = Some(names);
+            let gamepads = evdev::enumerate()
+                .filter(|(_, device)| {
+                    let keys: Vec<u16> = device
+                        .supported_keys()
+                        .map(|keys| keys.iter().map(|key| key.0).collect())
+                        .unwrap_or_default();
+                    is_gamepad(&keys)
+                })
+                .collect();
+            for (path, device) in unclaimed(gamepads, &active) {
+                active.insert(path.clone());
+                let device_id = next_device_id;
+                next_device_id += 1;
                 let reader_tx = tx.clone();
                 let reader_done = done_tx.clone();
                 let reader_alive = alive.clone();
                 let reader_focus = focused.clone();
                 let reader_repeat = repeat_enabled.clone();
-                let reader_reset = reset_held.clone();
+                let reader_reset = reset_generation.clone();
                 std::thread::spawn(move || {
                     read_loop(
                         device,
+                        device_id,
                         reader_tx,
                         reader_alive,
                         reader_focus,
@@ -350,20 +408,20 @@ fn discover_loop(
                     );
                     let _ = reader_done.send(path);
                 });
-                break;
             }
         }
-        std::thread::sleep(Duration::from_millis(500));
+        std::thread::sleep(DEVICE_SCAN_INTERVAL);
     }
 }
 
 fn read_loop(
     mut device: evdev::Device,
+    device_id: u64,
     tx: Sender<GamepadAction>,
     alive: Arc<AtomicBool>,
     focused: Arc<AtomicBool>,
     repeat_enabled: Arc<AtomicBool>,
-    reset_held: Arc<AtomicBool>,
+    reset_generation: Arc<AtomicU64>,
 ) {
     if device.set_nonblocking(true).is_err() {
         return;
@@ -387,9 +445,13 @@ fn read_loop(
     let mut vertical = DpadAxis::new(Action::Up, Action::Down);
     let clock = Instant::now();
     let mut last_sent: Option<(Action, u64)> = None;
+    let mut seen_reset = reset_generation.load(Ordering::Relaxed);
     while alive.load(Ordering::Relaxed) {
         let now_ms = clock.elapsed().as_millis() as u64;
-        if reset_held.swap(false, Ordering::Relaxed) || !focused.load(Ordering::Relaxed) {
+        let generation = reset_generation.load(Ordering::Relaxed);
+        let reset_requested = generation != seen_reset;
+        seen_reset = generation;
+        if reset_requested || !focused.load(Ordering::Relaxed) {
             horizontal.reset();
             vertical.reset();
             if let Some(stick) = &mut x {
@@ -423,7 +485,7 @@ fn read_loop(
                         _ => None,
                     };
                     if let Some(action) = action {
-                        if !send_once(&tx, &mut last_sent, action, now_ms, false) {
+                        if !send_once(&tx, device_id, &mut last_sent, action, now_ms, false) {
                             return;
                         }
                     }
@@ -442,7 +504,7 @@ fn read_loop(
         .into_iter()
         .flatten()
         {
-            if !send_once(&tx, &mut last_sent, action, now_ms, true) {
+            if !send_once(&tx, device_id, &mut last_sent, action, now_ms, true) {
                 return;
             }
         }
@@ -452,6 +514,7 @@ fn read_loop(
 
 fn send_once(
     tx: &Sender<GamepadAction>,
+    device: u64,
     last: &mut Option<(Action, u64)>,
     action: Action,
     now_ms: u64,
@@ -464,6 +527,7 @@ fn send_once(
     tx.send(GamepadAction {
         action,
         repeated,
+        device,
         at: Instant::now(),
     })
     .is_ok()
@@ -574,33 +638,128 @@ mod tests {
         assert_eq!(dpad.tick(1230, true), Some(Action::Down));
     }
 
-    #[test]
-    fn queued_input_is_dropped_on_focus_return_and_after_frame_gap() {
+    fn gamepad_with_channel() -> (Sender<GamepadAction>, GamepadThread) {
         let (tx, rx) = mpsc::channel();
-        let mut gamepad = GamepadThread {
+        let gamepad = GamepadThread {
             rx,
             alive: Arc::new(AtomicBool::new(true)),
             focused: Arc::new(AtomicBool::new(false)),
             repeat_enabled: Arc::new(AtomicBool::new(false)),
-            reset_held: Arc::new(AtomicBool::new(false)),
+            reset_generation: Arc::new(AtomicU64::new(0)),
+            arbiter: Arbiter::default(),
             last_drain: Instant::now(),
         };
-        let repeat = || GamepadAction {
-            action: Action::Down,
-            repeated: true,
+        (tx, gamepad)
+    }
+
+    fn press(device: u64, action: Action, repeated: bool) -> GamepadAction {
+        GamepadAction {
+            action,
+            repeated,
+            device,
             at: Instant::now(),
-        };
-        tx.send(repeat()).unwrap();
+        }
+    }
+
+    #[test]
+    fn queued_input_is_dropped_on_focus_return_and_after_frame_gap() {
+        let (tx, mut gamepad) = gamepad_with_channel();
+        let down = || press(0, Action::Down, false);
+        tx.send(down()).unwrap();
         assert!(gamepad.drain(true, true).is_empty()); // initial focus
-        tx.send(repeat()).unwrap();
+        assert_eq!(gamepad.reset_generation.load(Ordering::Relaxed), 1);
+        tx.send(down()).unwrap();
         assert_eq!(gamepad.drain(true, true).len(), 1);
-        tx.send(repeat()).unwrap();
+        assert_eq!(gamepad.reset_generation.load(Ordering::Relaxed), 1);
+        tx.send(down()).unwrap();
         assert!(gamepad.drain(false, true).is_empty());
-        tx.send(repeat()).unwrap();
+        assert_eq!(gamepad.reset_generation.load(Ordering::Relaxed), 2);
+        tx.send(down()).unwrap();
         assert!(gamepad.drain(true, true).is_empty()); // focus return
-        assert!(gamepad.reset_held.load(Ordering::Relaxed));
+        assert_eq!(gamepad.reset_generation.load(Ordering::Relaxed), 3);
         gamepad.last_drain = Instant::now() - Duration::from_secs(1);
-        tx.send(repeat()).unwrap();
+        tx.send(down()).unwrap();
         assert!(gamepad.drain(true, true).is_empty()); // stalled viewport
+        assert_eq!(gamepad.reset_generation.load(Ordering::Relaxed), 4);
+    }
+
+    #[test]
+    fn drain_drops_mirrored_device_input_and_dropped_events_do_not_own() {
+        let (tx, mut gamepad) = gamepad_with_channel();
+        assert!(gamepad.drain(true, true).is_empty());
+        tx.send(press(0, Action::Select, false)).unwrap();
+        tx.send(press(1, Action::Back, false)).unwrap(); // mirror, other mapping
+        tx.send(press(0, Action::Down, false)).unwrap();
+        let actions: Vec<Action> = gamepad
+            .drain(true, true)
+            .into_iter()
+            .map(|event| event.action)
+            .collect();
+        assert_eq!(actions, [Action::Select, Action::Down]);
+
+        tx.send(press(1, Action::Up, false)).unwrap();
+        gamepad.last_drain = Instant::now() - Duration::from_secs(1);
+        assert!(gamepad.drain(true, true).is_empty()); // gap drop, arbiter untouched
+        assert_eq!(gamepad.arbiter.owner.map(|(device, _)| device), Some(0));
+    }
+
+    #[test]
+    fn first_press_takes_ownership_and_owner_events_pass() {
+        let start = Instant::now();
+        let mut arbiter = Arbiter::default();
+        assert!(arbiter.accept(3, false, start));
+        assert!(arbiter.accept(3, true, start + Duration::from_secs(5)));
+        assert!(arbiter.accept(3, false, start + Duration::from_secs(6)));
+    }
+
+    #[test]
+    fn mirror_within_window_is_dropped() {
+        let start = Instant::now();
+        let mut arbiter = Arbiter::default();
+        assert!(arbiter.accept(0, false, start));
+        assert!(!arbiter.accept(1, false, start + Duration::from_millis(5)));
+        assert!(!arbiter.accept(1, false, start + MIRROR_WINDOW));
+        assert!(arbiter.accept(0, false, start + Duration::from_millis(100)));
+        assert!(!arbiter.accept(1, false, start + Duration::from_millis(240)));
+    }
+
+    #[test]
+    fn press_after_quiet_window_takes_ownership_from_the_old_owner() {
+        let start = Instant::now();
+        let mut arbiter = Arbiter::default();
+        assert!(arbiter.accept(0, false, start));
+        let later = start + MIRROR_WINDOW + Duration::from_millis(1);
+        assert!(arbiter.accept(1, false, later));
+        assert!(!arbiter.accept(0, false, later + Duration::from_millis(10)));
+        assert!(arbiter.accept(1, true, later + Duration::from_millis(20)));
+    }
+
+    #[test]
+    fn repeats_from_a_non_owner_never_pass_or_take_ownership() {
+        let start = Instant::now();
+        let mut arbiter = Arbiter::default();
+        assert!(!arbiter.accept(0, true, start));
+        assert!(arbiter.owner.is_none());
+        assert!(arbiter.accept(0, false, start));
+        assert!(!arbiter.accept(1, true, start + Duration::from_secs(1)));
+        assert!(arbiter.accept(0, true, start + Duration::from_secs(2)));
+    }
+
+    #[test]
+    fn unclaimed_keeps_only_paths_without_a_reader() {
+        let active: HashSet<PathBuf> = [PathBuf::from("/dev/input/event5")].into();
+        let found = vec![
+            (PathBuf::from("/dev/input/event3"), 'a'),
+            (PathBuf::from("/dev/input/event5"), 'b'),
+            (PathBuf::from("/dev/input/event7"), 'c'),
+        ];
+        assert_eq!(
+            unclaimed(found, &active),
+            [
+                (PathBuf::from("/dev/input/event3"), 'a'),
+                (PathBuf::from("/dev/input/event7"), 'c')
+            ]
+        );
+        assert!(unclaimed(Vec::<(PathBuf, ())>::new(), &active).is_empty());
     }
 }
