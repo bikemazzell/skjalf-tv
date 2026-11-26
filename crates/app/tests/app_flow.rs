@@ -3894,6 +3894,35 @@ fn position_is_saved_every_ten_seconds_during_playback() {
 }
 
 #[test]
+fn a_progress_save_failure_shows_the_cause_and_clears_after_a_good_save() {
+    let tag = "c5_save_fails";
+    let (mut a, _, engine) = playing_movie(tag);
+    let blocker = std::env::temp_dir()
+        .join(format!("skjalf-apptest-{tag}-{}", std::process::id()))
+        .join("progress.json");
+    std::fs::create_dir_all(blocker.join("in-the-way")).unwrap();
+    set_clock(&engine, 200.0, 5400.0);
+    a.poll_jobs(11_000);
+    let notice = a.notice.clone().expect("failure notice");
+    assert!(
+        notice.starts_with("Could not save playback progress: "),
+        "{notice}"
+    );
+    assert!(notice.len() > "Could not save playback progress: ".len());
+
+    std::fs::remove_dir_all(&blocker).unwrap();
+    a.poll_jobs(21_000);
+    assert_eq!(saved_progress(&a, "1001").unwrap().position_secs, 200.0);
+    assert_eq!(a.notice, None);
+
+    std::fs::remove_file(&blocker).unwrap();
+    std::fs::create_dir_all(blocker.join("in-the-way")).unwrap();
+    a.poll_jobs(31_000);
+    assert!(a.notice.is_some(), "a new failure shows again");
+    std::fs::remove_dir_all(&blocker).unwrap();
+}
+
+#[test]
 fn position_is_read_from_the_engine_at_most_every_500_ms() {
     let (mut a, _, engine) = playing_movie("c5_rate");
     set_clock(&engine, 150.0, 5400.0);

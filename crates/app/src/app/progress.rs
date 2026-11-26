@@ -16,6 +16,7 @@ pub const RECENT_LIMIT: usize = 12;
 /// A channel joins Recently Watched after playing this long, so zapping
 /// past channels leaves no trace.
 pub const VISIT_AFTER_MS: u64 = 10_000;
+const SAVE_FAILED_NOTICE: &str = "Could not save playback progress: ";
 
 fn progress_kind(kind: ContentKind) -> Option<ProgressKind> {
     match kind {
@@ -111,13 +112,28 @@ impl App {
 
     fn persist_progress(&mut self) {
         self.refresh_continue_items();
-        let failed = self
-            .store
-            .as_ref()
-            .is_none_or(|store| store.save_progress(&self.progress).is_err());
-        if failed && !self.progress_save_failed {
-            self.progress_save_failed = true;
-            self.notice = Some("Could not save playback progress.".into());
+        let result = match &self.store {
+            Some(store) => store
+                .save_progress(&self.progress)
+                .map_err(|e| e.to_string()),
+            None => Err("storage is unavailable".into()),
+        };
+        match result {
+            Err(error) if !self.progress_save_failed => {
+                self.progress_save_failed = true;
+                self.notice = Some(format!("{SAVE_FAILED_NOTICE}{error}"));
+            }
+            Ok(()) if self.progress_save_failed => {
+                self.progress_save_failed = false;
+                if self
+                    .notice
+                    .as_deref()
+                    .is_some_and(|notice| notice.starts_with(SAVE_FAILED_NOTICE))
+                {
+                    self.notice = None;
+                }
+            }
+            _ => {}
         }
     }
 
