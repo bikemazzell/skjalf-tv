@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.5 - 2026-11-25
+
+- Fixed: the video buffer no longer fills the disk. Before, a movie wrote everything that it downloaded to a file in ~/.cache/skjalf, and one movie could use more than 9 GB. The buffer is now in memory, with a limit of 1 GiB. Buffer Before Playback can end before its time on a high-bitrate stream, when the buffer is full.
+- Fixed: the message "Could not save playback progress" now gives the cause, and it goes away after the next save that works.
+
 ## 0.2.4 - 2026-11-22
 
 - A Recently Watched row on the Main screen, below Continue Watching. It shows the last 12 movies, series, and live channels that you watched, newest first, also when you finished them. A series shows once, with its last episode. A live channel joins the row after it plays for 10 seconds, so channels that you skip past do not show.
