@@ -372,7 +372,6 @@ impl App {
             initial_volume,
             ignore_ssl,
             &app.settings.effective_user_agent(),
-            crate::player_cache_dir().as_deref(),
         ) {
             app.engine = Some(Box::new(engine));
         }

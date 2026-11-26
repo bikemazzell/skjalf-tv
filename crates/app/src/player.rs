@@ -151,9 +151,9 @@ pub struct MpvEngine {
     track_wait_after: Option<f64>,
 }
 
-/// Forward buffer limit when the cache lives on disk. In memory, mpv keeps
-/// its own default of 150 MiB.
-const DISK_CACHE_LIMIT: &str = "4GiB";
+/// Forward buffer limit, in memory. mpv cannot cap a disk cache: its file
+/// only grows until the media closes.
+const CACHE_LIMIT: &str = "1GiB";
 /// The wait that "start now" sets: play what is already buffered.
 const START_NOW_WAIT: f64 = 0.5;
 /// How far playback runs past a track switch before the stall wait returns.
@@ -298,24 +298,17 @@ impl MpvEngine {
     /// Engine configured for on-screen playback (vo chosen by render API).
     ///
     /// `ignore_ssl` mirrors the app setting; TLS verification stays ON
-    /// otherwise (stream URLs carry credentials). With `disk_cache`, mpv
-    /// buffers to an unlinked file there, so long buffers use no memory.
+    /// otherwise (stream URLs carry credentials).
     pub fn new(
         initial_volume: u8,
         ignore_ssl: bool,
         user_agent: &str,
-        disk_cache: Option<&Path>,
     ) -> Result<Self, PlayerError> {
-        let mut builder = Self::base_builder(ignore_ssl)?
+        let builder = Self::base_builder(ignore_ssl)?
             .set_property("user-agent", user_agent)?
             .set_property("vo", "libmpv")?
-            .set_property("volume", initial_volume.min(100) as i64)?;
-        if let Some(dir) = disk_cache.and_then(Path::to_str) {
-            builder = builder
-                .set_property("cache-on-disk", true)?
-                .set_property("demuxer-cache-dir", dir)?
-                .set_property("demuxer-max-bytes", DISK_CACHE_LIMIT)?;
-        }
+            .set_property("volume", initial_volume.min(100) as i64)?
+            .set_property("demuxer-max-bytes", CACHE_LIMIT)?;
         Self::from_mpv(builder.build()?)
     }
 
